@@ -1,0 +1,19 @@
+name: Notify template change
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/**']
+
+jobs:
+  notify:
+    if: github.repository == 'pie-extensions/extension-template'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch to core repo
+        env:
+          GH_TOKEN: ${{ secrets.PIE_COMPAT_BOT_TOKEN }}
+        run: |
+          gh api repos/pie-extensions/core/dispatches \
+            -f event_type=template-github-changed \
+            -f "client_payload[sha]=${{ github.sha }}"
