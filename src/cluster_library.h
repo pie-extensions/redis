@@ -378,7 +378,7 @@ PHP_REDIS_API redisCluster *cluster_create(double timeout, double read_timeout,
     int failover, int persistent);
 PHP_REDIS_API void cluster_free(redisCluster *c, int free_ctx);
 PHP_REDIS_API void cluster_init_seeds(redisCluster *c, zend_string **seeds, uint32_t nseeds);
-PHP_REDIS_API int cluster_map_keyspace(redisCluster *c);
+REDIS_NODISCARD PHP_REDIS_API int cluster_map_keyspace(redisCluster *c);
 PHP_REDIS_API void cluster_free_node(redisClusterNode *node);
 
 /* Functions for interacting with cached slots maps */
@@ -422,7 +422,7 @@ PHP_REDIS_API void cluster_zadd_resp(INTERNAL_FUNCTION_PARAMETERS, redisCluster 
     void *ctx);
 PHP_REDIS_API void cluster_zrandmember_resp(INTERNAL_FUNCTION_PARAMETERS, redisCluster *c,
     void *ctx);
-PHP_REDIS_API void cluster_srandmember_resp(INTERNAL_FUNCTION_PARAMETERS, redisCluster *c,
+PHP_REDIS_API void cluster_randmember_resp(INTERNAL_FUNCTION_PARAMETERS, redisCluster *c,
     void *ctx);
 PHP_REDIS_API void cluster_set_resp(INTERNAL_FUNCTION_PARAMETERS, redisCluster *c,
     void *ctx);
@@ -431,6 +431,8 @@ PHP_REDIS_API void cluster_geosearch_resp(INTERNAL_FUNCTION_PARAMETERS, redisClu
 PHP_REDIS_API void cluster_single_line_resp(INTERNAL_FUNCTION_PARAMETERS, redisCluster *c,
     void *ctx);
 PHP_REDIS_API void cluster_bulk_resp(INTERNAL_FUNCTION_PARAMETERS, redisCluster *c,
+    void *ctx);
+PHP_REDIS_API void cluster_bulk_withmeta_resp(INTERNAL_FUNCTION_PARAMETERS, redisCluster *c,
     void *ctx);
 PHP_REDIS_API void cluster_bulk_raw_resp(INTERNAL_FUNCTION_PARAMETERS, redisCluster *c,
     void *ctx);
@@ -446,6 +448,14 @@ PHP_REDIS_API void cluster_sub_resp(INTERNAL_FUNCTION_PARAMETERS, redisCluster *
     void *ctx);
 PHP_REDIS_API void cluster_unsub_resp(INTERNAL_FUNCTION_PARAMETERS, redisCluster *c,
     void *ctx);
+PHP_REDIS_API void cluster_vemb_resp(INTERNAL_FUNCTION_PARAMETERS, redisCluster *c,
+    void *ctx);
+PHP_REDIS_API void cluster_vinfo_resp(INTERNAL_FUNCTION_PARAMETERS, redisCluster *c,
+    void *ctx);
+PHP_REDIS_API void cluster_vlinks_resp(INTERNAL_FUNCTION_PARAMETERS, redisCluster *c,
+    void *ctx);
+PHP_REDIS_API void cluster_vgetattr_resp(INTERNAL_FUNCTION_PARAMETERS, redisCluster *c,
+    void *ctx);
 
 PHP_REDIS_API void cluster_zrange_resp(INTERNAL_FUNCTION_PARAMETERS, redisCluster *c,
     void *ctx);
@@ -460,8 +470,6 @@ PHP_REDIS_API void cluster_variant_resp_strings(INTERNAL_FUNCTION_PARAMETERS,
     redisCluster *c, void *ctx);
 
 /* MULTI BULK response functions */
-PHP_REDIS_API void cluster_gen_mbulk_resp(INTERNAL_FUNCTION_PARAMETERS,
-    redisCluster *c, mbulk_cb func, void *ctx);
 PHP_REDIS_API void cluster_mbulk_raw_resp(INTERNAL_FUNCTION_PARAMETERS,
     redisCluster *c, void *ctx);
 PHP_REDIS_API void cluster_mbulk_resp(INTERNAL_FUNCTION_PARAMETERS,
@@ -517,20 +525,6 @@ PHP_REDIS_API void cluster_mpop_resp(INTERNAL_FUNCTION_PARAMETERS,
 /* Custom ACL handlers */
 PHP_REDIS_API void cluster_acl_getuser_resp(INTERNAL_FUNCTION_PARAMETERS, redisCluster *c, void *ctx);
 PHP_REDIS_API void cluster_acl_log_resp(INTERNAL_FUNCTION_PARAMETERS, redisCluster *c, void *ctx);
-
-/* MULTI BULK processing callbacks */
-int mbulk_resp_loop(RedisSock *redis_sock, zval *z_result,
-    long long count, void *ctx);
-int mbulk_resp_loop_raw(RedisSock *redis_sock, zval *z_result,
-    long long count, void *ctx);
-int mbulk_resp_loop_zipstr(RedisSock *redis_sock, zval *z_result,
-    long long count, void *ctx);
-int mbulk_resp_loop_dbl(RedisSock *redis_sock, zval *z_result,
-    long long count, void *ctx);
-int mbulk_resp_loop_zipdbl(RedisSock *redis_sock, zval *z_result,
-    long long count, void *ctx);
-int mbulk_resp_loop_assoc(RedisSock *redis_sock, zval *z_result,
-    long long count, void *ctx);
 
 #endif
 

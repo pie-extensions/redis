@@ -256,6 +256,16 @@ class RedisCluster {
     public function del(array|string $key, string ...$other_keys): RedisCluster|int|false;
 
     /**
+     * Delete a key if it's equal to the specified value. This command is
+     * specific to Valkey >= 9.0
+     *
+     * @param string $key   The key to delete
+     * @param mixed  $value The value to compare against the key's value.
+     * @return RedisCluster|int|false Returns 1 if the key was deleted, 0 if it was not.
+     */
+    public function delifeq(string $key, mixed $value): RedisCluster|int|false;
+
+    /**
      * @see Redis::discard
      */
     public function discard(): bool;
@@ -471,6 +481,11 @@ class RedisCluster {
     public function hgetall(string $key): RedisCluster|array|false;
 
     /**
+     * @see Redis::hgetWithMeta
+     */
+    public function hgetWithMeta(string $key, string $member): mixed;
+
+    /**
      * @see Redis::hincrby
      */
     public function hincrby(string $key, string $member, int $value): RedisCluster|int|false;
@@ -494,6 +509,21 @@ class RedisCluster {
      * @see Redis::hmget
      */
     public function hmget(string $key, array $keys): RedisCluster|array|false;
+
+    /**
+     * @see Redis::hgetex
+     */
+    public function hgetex(string $key, array $fields, string|array|null $expiry = null): RedisCluster|array|false;
+
+    /**
+     * @see Redis::hsetex
+     */
+    public function hsetex(string $key, array $fields, ?array $expiry = null): RedisCluster|int|false;
+
+    /**
+     * @see Redis::hgetdel
+     */
+    public function hgetdel(string $key, array $fields): RedisCluster|array|false;
 
     /**
      * @see Redis::hmset
@@ -534,6 +564,55 @@ class RedisCluster {
      * @see Redis::hstrlen
      */
     public function hstrlen(string $key, string $field): RedisCluster|int|false;
+
+    /**
+     * @see Redis::hexpire
+     */
+    public function hexpire(string $key, int $ttl, array $fields,
+                            ?string $mode = NULL): RedisCluster|array|false;
+
+    /**
+     * @see Redis::hpexpire
+     */
+    public function hpexpire(string $key, int $ttl, array $fields,
+                            ?string $mode = NULL): RedisCluster|array|false;
+
+    /**
+     * @see Redis::hexpireat
+     */
+    public function hexpireat(string $key, int $time, array $fields,
+                              ?string $mode = NULL): RedisCluster|array|false;
+
+    /**
+     * @see Redis::hpexpireat
+     */
+    public function hpexpireat(string $key, int $mstime, array $fields,
+                               ?string $mode = NULL): RedisCluster|array|false;
+
+    /**
+     * @see Redis::httl
+     */
+    public function httl(string $key, array $fields): RedisCluster|array|false;
+
+    /**
+     * @see Redis::hpttl
+     */
+    public function hpttl(string $key, array $fields): RedisCluster|array|false;
+
+    /**
+     * @see Redis::hexpiretime
+     */
+    public function hexpiretime(string $key, array $fields): RedisCluster|array|false;
+
+    /**
+     * @see Redis::hpexpiretime
+     */
+    public function hpexpiretime(string $key, array $fields): RedisCluster|array|false;
+
+    /**
+     * @see Redis::hpexpiretime
+     */
+    public function hpersist(string $key, array $fields): RedisCluster|array|false;
 
     /**
      * @see Redis::hvals
@@ -988,6 +1067,84 @@ class RedisCluster {
      * @see Redis::watch
      */
     public function watch(string $key, string ...$other_keys): RedisCluster|bool;
+
+    /**
+     * @see Redis::vadd
+     */
+    public function vadd(string $key, array $values, mixed $element, array|null $options = null): RedisCluster|int|false;
+
+    /**
+     * @see Redis::vsim
+     */
+    public function vsim(string $key, mixed $member, array|null $options = null): RedisCluster|array|false;
+
+    /**
+     * @see Redis::vcard
+     */
+    public function vcard(string $key): RedisCluster|int|false;
+
+    /**
+     * @see Redis::vdim
+     */
+    public function vdim(string $key): RedisCluster|int|false;
+
+    /**
+     * @see Redis::vinfo
+     */
+    public function vinfo(string $key): RedisCluster|array|false;
+
+    /**
+     * Check if an element is a member of a vectorset
+     *
+     * @param string $key    The vector set to query.
+     * @param mixed  $member The member to check for.
+     *
+     * @return RedisCluster|bool true if the member exists, false if it does not.
+     */
+    public function vismember(string $key, mixed $member): RedisCluster|bool;
+
+    /**
+     * @see Redis::vemb
+     */
+    public function vemb(string $key, mixed $member, bool $raw = false): RedisCluster|array|false;
+
+    /**
+     * @see Redis::vrandmember
+     */
+    public function vrandmember(string $key, int $count = 0): RedisCluster|array|string|false;
+
+    /**
+     * Retreive a lexographical range of elements from a vector set
+     *
+     * @param string $key        The vector set to query.
+     * @param string $min        The minimum element to return.
+     * @param string $max        The maximum element to return.
+     * @param int    $count      An optional maximum number of elements to return.
+     *
+     * @return RedisCluster|array|false An array of elements in the specified range.`
+     */
+    public function vrange(string $key, string $min, string $max, int $count = -1): RedisCluster|array|false;
+
+
+    /**
+     * @see Redis::vrem
+     */
+    public function vrem(string $key, mixed $member): RedisCluster|int|false;
+
+    /**
+     * @see Redis::vlinks
+     */
+    public function vlinks(string $key, mixed $member, bool $withscores = false): RedisCluster|array|false;
+
+    /**
+     * @see Redis::vgetattr
+     */
+    public function vgetattr(string $key, mixed $member, bool $decode = true): RedisCluster|array|string|false;
+
+    /**
+     * @see Redis::vsetattr
+     */
+    public function vsetattr(string $key, mixed $member, array|string $attributes): RedisCluster|int|false;
 
     /**
      * @see Redis::xack

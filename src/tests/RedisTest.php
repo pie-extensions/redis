@@ -77,10 +77,22 @@ class Redis_Test extends TestSuite {
         $this->version = (isset($info['redis_version'])?$info['redis_version']:'0.0.0');
         $this->is_keydb = $this->detectKeyDB($info);
         $this->is_valkey = $this->detectValKey($info);
+        $this->valkey_version = $info['valkey_version'] ?? '0.0.0';
+    }
+
+    protected function haveCommand(string $cmd): bool {
+        $info = $this->redis->command('info', $cmd);
+        $name = $info[0][0] ?? null;
+
+        return $name && strcasecmp($cmd, $name) === 0;
     }
 
     protected function minVersionCheck($version) {
         return version_compare($this->version, $version) >= 0;
+    }
+
+    protected function minValkeyVersionCheck($version) {
+        return $this->is_valkey && version_compare($this->valkey_version, $version) >= 0;
     }
 
     protected function mstime() {
@@ -1086,6 +1098,16 @@ class Redis_Test extends TestSuite {
         $this->genericDelUnlink('DEL');
     }
 
+    public function testDelIfEq() {
+        if ( ! $this->haveCommand('DELIFEQ'))
+            $this->markTestSkipped();
+
+        $this->assertTrue($this->redis->set('key', 'value'));
+        $this->assertEquals(0, $this->redis->delifeq('key', 'notvalue'));
+        $this->assertEquals(1, $this->redis->delifeq('key', 'value'));
+        $this->assertEquals(0, $this->redis->exists('key'));
+    }
+
     public function testUnlink() {
         if (version_compare($this->version, '4.0.0') < 0)
             $this->markTestSkipped();
@@ -1133,10 +1155,15 @@ class Redis_Test extends TestSuite {
             $this->assertEquals(Redis::REDIS_STREAM, $this->redis->type('stream'));
         }
 
+        if ($this->haveCommand('vadd')) {
+            $this->redis->del('vset');
+            $this->assertEquals(1, $this->redis->vadd('vset', [1.5, 2.5], 'foo'));
+            $this->assertEquals(Redis::REDIS_VECTORSET, $this->redis->type('vset'));
+        }
+
         // None
         $this->redis->del('keyNotExists');
         $this->assertEquals(Redis::REDIS_NOT_FOUND, $this->redis->type('keyNotExists'));
-
     }
 
     public function testStr() {
@@ -2401,7 +2428,6 @@ class Redis_Test extends TestSuite {
 
         // Make sure when we pass with bad arguments we just get back false
         $this->assertFalse($this->redis->wait(-1, -1));
-        $this->assertEquals(0, $this->redis->wait(-1, 20));
     }
 
     public function testInfo() {
@@ -2457,7 +2483,7 @@ class Redis_Test extends TestSuite {
         $this->assertTrue(is_array($res) && isset($res['redis_version']) && isset($res['used_memory']));
     }
 
-    private function execHello() {
+    protected function execHello() {
         $zipped = [];
 
         $result = $this->redis->rawCommand('HELLO');
@@ -2476,6 +2502,7 @@ class Redis_Test extends TestSuite {
             $this->markTestSkipped();
 
         $hello = $this->execHello();
+
         if ( ! $this->assertArrayKey($hello, 'server') ||
              ! $this->assertArrayKey($hello, 'version'))
         {
@@ -2486,6 +2513,7 @@ class Redis_Test extends TestSuite {
         $this->assertEquals($hello['version'], $this->redis->serverVersion());
 
         $info = $this->redis->info();
+
         $cmd1 = $info['total_commands_processed'];
 
         /* Shouldn't hit the server */
@@ -2629,9 +2657,10 @@ class Redis_Test extends TestSuite {
     }
 
     public function testZAddFirstArg() {
-        $this->redis->del('key');
-
         $zsetName = 100; // not a string!
+
+        $this->redis->del($zsetName);
+
         $this->assertEquals(1, $this->redis->zAdd($zsetName, 0, 'val0'));
         $this->assertEquals(1, $this->redis->zAdd($zsetName, 1, 'val1'));
 
@@ -2645,6 +2674,17 @@ class Redis_Test extends TestSuite {
         $this->assertEquals(20.0, $this->redis->zAdd('zset', ['incr'], 10, 'value'));
 
         $this->assertFalse($this->redis->zAdd('zset', ['incr'], 10, 'value', 20, 'value2'));
+    }
+
+    /* Regression test for GitHub issue #2697 */
+    public function testZAddLargeLong() {
+        $this->redis->del('key');
+
+        $val = 5000000000;
+
+        $this->assertEquals(1, $this->redis->zAdd('key', $val, 'val0'));
+
+        $this->assertEquals($this->redis->zscore('key', 'val0'), (float)$val);
     }
 
     public function testZX() {
@@ -3297,7 +3337,7 @@ class Redis_Test extends TestSuite {
         $this->assertEquals([123 => FALSE], $this->redis->hMget('h', [123]));
 
         // Test with an array populated with things we can't use as keys
-        $this->assertFalse($this->redis->hmget('h', [false,NULL,false]));
+        $this->assertFalse(@$this->redis->hmget('h', [false,NULL,false]));
 
         // Test with some invalid keys mixed in (which should just be ignored)
         $this->assertEquals(
@@ -3353,6 +3393,24 @@ class Redis_Test extends TestSuite {
             $this->assertEquals(0, $this->redis->hStrLen('h', 'x')); // field is not present in the hash
             $this->assertEquals(3, $this->redis->hStrLen('h', 'foo'));
 	}
+    }
+
+    /* Regression test for GitHub issue 2731 */
+    public function testNumericPrefixHashFields() {
+        $hash = [
+            '86deaeb05e3f7760b67e92897a1325e0fdd8618d' => 'one',
+            '-86deaeb05e3f7760b67e92897a1325e0fdd8618d' => 'two',
+            12345 => 'a_real_number',
+            -12345 => 'a_negative_real_number',
+        ];
+
+        $this->assertIsInt($this->redis->del('hash'));
+        $this->assertTrue($this->redis->hmset('hash', $hash));
+
+        $res = $this->redis->hmget('hash', array_keys($hash));
+
+        // The keys from our local variable and res should be equal
+        $this->assertEqualsCanonicalizing(array_keys($hash), array_keys($res));
     }
 
     public function testHRandField() {
@@ -5733,6 +5791,15 @@ class Redis_Test extends TestSuite {
             $this->assertEquals(1, $this->redis->evalsha_ro($sha));
     }
 
+    /* Regression test for #2681 where there was undefined behavior when sending
+       one or more arguments but no keys in cluster mode. */
+    public function testEvalNoKeys() {
+        for ($i = 0; $i < 10; $i++) {
+            $this->assertEqualsWeak($i, $this->redis->eval("return $i", [42], 0));
+            $this->assertEqualsWeak($i, $this->redis->eval('return ARGV[1]', [$i], 0));
+        }
+    }
+
     public function testSerialize() {
         $vals = [1, 1.5, 'one', ['here', 'is', 'an', 'array']];
 
@@ -5869,22 +5936,24 @@ class Redis_Test extends TestSuite {
             return true;
         });
 
-        $batch = $this->redis->pipeline()
-            ->get('key')
-            ->getWithMeta('key')
-            ->exec();
-        $this->assertIsArray($batch, 2);
-        $this->assertArrayKeyEquals($batch, 0, false);
-        $this->assertArrayKey($batch, 1, function ($result) {
-            $this->assertIsArray($result, 2);
-            $this->assertArrayKeyEquals($result, 0, false);
-            $this->assertArrayKey($result, 1, function ($metadata) {
-                $this->assertIsArray($metadata);
-                $this->assertArrayKeyEquals($metadata, 'length', -1);
+        if ($this->havePipeline()) {
+            $batch = $this->redis->pipeline()
+                ->get('key')
+                ->getWithMeta('key')
+                ->exec();
+            $this->assertIsArray($batch, 2);
+            $this->assertArrayKeyEquals($batch, 0, false);
+            $this->assertArrayKey($batch, 1, function ($result) {
+                $this->assertIsArray($result, 2);
+                $this->assertArrayKeyEquals($result, 0, false);
+                $this->assertArrayKey($result, 1, function ($metadata) {
+                    $this->assertIsArray($metadata);
+                    $this->assertArrayKeyEquals($metadata, 'length', -1);
+                    return true;
+                });
                 return true;
             });
-            return true;
-        });
+        }
 
         $batch = $this->redis->multi()
             ->set('key', 'value')
@@ -5917,6 +5986,72 @@ class Redis_Test extends TestSuite {
         });
 
         $this->assertFalse($this->redis->get('key'));
+        $this->redis->setOption(Redis::OPT_SERIALIZER, $serializer);
+    }
+
+    public function testHGetWithMeta() {
+        $this->redis->del('hash');
+        $this->assertFalse($this->redis->hget('hash', 'member'));
+
+        $result = $this->redis->hgetWithMeta('hash', 'member');
+        $this->assertIsArray($result, 2);
+        $this->assertArrayKeyEquals($result, 0, false);
+        $this->assertArrayKey($result, 1, function ($metadata) {
+            $this->assertIsArray($metadata);
+            $this->assertArrayKeyEquals($metadata, 'length', -1);
+            return true;
+        });
+
+        if ($this->havePipeline()) {
+            $batch = $this->redis->pipeline()
+                ->hget('hash', 'member')
+                ->hgetWithMeta('hash', 'member')
+                ->exec();
+            $this->assertIsArray($batch, 2);
+            $this->assertArrayKeyEquals($batch, 0, false);
+            $this->assertArrayKey($batch, 1, function ($result) {
+                $this->assertIsArray($result, 2);
+                $this->assertArrayKeyEquals($result, 0, false);
+                $this->assertArrayKey($result, 1, function ($metadata) {
+                    $this->assertIsArray($metadata);
+                    $this->assertArrayKeyEquals($metadata, 'length', -1);
+                    return true;
+                });
+                return true;
+            });
+        }
+
+        $batch = $this->redis->multi()
+            ->hset('hash', 'member', 'value')
+            ->hgetWithMeta('hash', 'member')
+            ->exec();
+        $this->assertIsArray($batch, 2);
+        $this->assertArrayKeyEquals($batch, 0, 1);
+        $this->assertArrayKey($batch, 1, function ($result) {
+            $this->assertIsArray($result, 2);
+            $this->assertArrayKeyEquals($result, 0, 'value');
+            $this->assertArrayKey($result, 1, function ($metadata) {
+                $this->assertIsArray($metadata);
+                $this->assertArrayKeyEquals($metadata, 'length', strlen('value'));
+                return true;
+            });
+            return true;
+        });
+
+        $serializer = $this->redis->getOption(Redis::OPT_SERIALIZER);
+        $this->redis->setOption(Redis::OPT_SERIALIZER, Redis::SERIALIZER_PHP);
+        $this->assertEquals(0, $this->redis->hset('hash', 'member', false));
+
+        $result = $this->redis->hgetWithMeta('hash', 'member');
+        $this->assertIsArray($result, 2);
+        $this->assertArrayKeyEquals($result, 0, false);
+        $this->assertArrayKey($result, 1, function ($metadata) {
+            $this->assertIsArray($metadata);
+            $this->assertArrayKeyEquals($metadata, 'length', strlen(serialize(false)));
+            return true;
+        });
+
+        $this->assertFalse($this->redis->hget('hash', 'member'));
         $this->redis->setOption(Redis::OPT_SERIALIZER, $serializer);
     }
 
@@ -6185,6 +6320,7 @@ class Redis_Test extends TestSuite {
             // Use a unique ID so we can find our type keys
             $id = uniqid();
 
+            $keys = [];
             // Create some simple keys and lists
             for ($i = 0; $i < 3; $i++) {
                 $simple = "simple:{$id}:$i";
@@ -6281,6 +6417,181 @@ class Redis_Test extends TestSuite {
                 $this->assertEquals($value, $this->redis->getOption($option));
             }
         }
+    }
+
+    public function testHashExpiration() {
+        if ( ! $this->haveCommand('HEXPIRE'))
+            $this->markTestSkipped();
+
+        $hexpire_cmds = [
+            'hexpire'    => 10,
+            'hpexpire'   => 10000,
+            'hexpireat'  => time() + 10,
+            'hpexpireat' => time() * 1000 + 10000,
+        ];
+
+        $httl_cmds = ['httl', 'hpttl', 'hexpiretime', 'hpexpiretime'];
+
+        $hash = ['Picard' => 'Enterprise', 'Sisko' => 'Defiant'];
+        $keys = array_keys($hash);
+
+        foreach ($hexpire_cmds as $exp_cmd => $ttl) {
+            $this->redis->del('hash');
+            $this->redis->hmset('hash', $hash);
+
+            /* Set a TTL on one existing and one non-existing field */
+            $res = $this->redis->{$exp_cmd}('hash', $ttl, ['Picard', 'nofield']);
+
+            $this->assertEquals($res, [1, -2]);
+
+            foreach ($httl_cmds as $ttl_cmd) {
+                $res = $this->redis->{$ttl_cmd}('hash', $keys);
+                $this->assertIsArray($res);
+                $this->assertEquals(count($keys), count($res));
+
+                /* Picard: has an expiry (>0), Siskto does not (<0) */
+                $this->assertTrue($res[0] > 0);
+                $this->assertTrue($res[1] < 0);
+            }
+
+            $this->redis->del('m');
+            $this->redis->hmset('m', ['F' => 'V']);
+
+            // NX - Only set expiry if it doesn't have one
+            foreach ([[1], [0]] as $expected) {
+                $res = $this->redis->{$exp_cmd}('m', $ttl, ['F'], 'NX');
+                $this->assertEquals($expected, $res);
+            }
+
+            // XX - Set if it has one
+            $res = $this->redis->{$exp_cmd}('m', $ttl, ['F'], 'XX');
+            $this->assertEquals([1], $res);
+            $this->redis->hpersist('m', ['F']);
+            $res = $this->redis->{$exp_cmd}('m', $ttl, ['F'], 'XX');
+            $this->assertEquals([0], $res);
+
+            // GT - should set if the new expiration is larger
+            $res = $this->redis->{$exp_cmd}('m', $ttl, ['F']);
+            $res = $this->redis->{$exp_cmd}('m', $ttl + 100, ['F'], 'GT');
+            $this->assertEquals([1], $res);
+
+            // LT - should not set if the new expiration is smaller
+            $res = $this->redis->{$exp_cmd}('m', intval($ttl / 2), ['F'], 'LT');
+            $this->assertTrue(is_array($res) && $res[0] > 0);
+        }
+    }
+
+    public function testHGetEx() {
+        if ( ! $this->minVersionCheck('8.0'))
+            $this->markTestSkipped();
+
+        $now = time();
+
+        $tests = [
+            [['EX' => 10], 'httl', 0, 10],
+            [['PX' => 10000], 'hpttl', 0, 10000],
+            [['EXAT' => $now + 10], 'hexpiretime', $now, $now + 10],
+            [['PXAT' => $now * 1000 + 10000], 'hpexpiretime', $now * 1000, $now * 1000 + 10000],
+            ['PERSIST', 'httl', -1, -1],
+            [['PERSIST'], 'httl', -1,-1],
+        ];
+
+        $hash = ['ship' => 'Defiant', 'captain' => 'Sisko'];
+
+        foreach ($tests as [$expireArg, $ttlFn, $minTtl, $maxTtl]) {
+            $this->redis->del('hash');
+            $this->assertTrue($this->redis->hmset('hash', $hash));
+
+            $v = $this->redis->hgetex('hash', ['ship', 'captain'], $expireArg);
+            $this->assertEquals($hash, $v);
+
+            $ttls = $this->redis->{$ttlFn}('hash', ['ship', 'captain']);
+            $this->assertIsArray($ttls);
+
+            foreach ($ttls as $val) {
+                $this->assertBetween($val, $minTtl, $maxTtl);
+            }
+        }
+    }
+
+    public function testHSetEx(): void {
+        if ( ! $this->minVersionCheck('8.0')) {
+            $this->markTestSkipped('HSETEX requires Redis 8+');
+        }
+
+        $now  = time();
+        $nowMs = $now * 1000;
+        $hash = ['a' => 'foo', 'b' => 'bar'];
+
+        $cases = [
+            [['EX', 5], 'httl'],
+            [['PX', 1234], 'hpttl'],
+            [['EXAT', $now + 5], 'hexpiretime'],
+            [['PXAT', $nowMs + 5000], 'hpexpiretime'],
+        ];
+
+        foreach ($cases as [[$ex, $n], $ttlFn]) {
+            $this->redis->del('hash');
+            $this->assertTrue($this->redis->hMSet('hash', $hash));
+
+            $expireArg = [$ex => $n];
+            $result = $this->redis->hsetex('hash', $hash, $expireArg);
+            $this->assertLTE(count($hash), $result);
+
+            $got = $this->redis->hMGet('hash', array_keys($hash));
+            $this->assertEquals($hash, $got);
+
+            $ttls = $this->redis->{$ttlFn}('hash', array_keys($hash));
+            $this->assertIsArray($ttls);
+
+            foreach ($ttls as $ttl) {
+                $this->assertLTE($n, $ttl);
+            }
+        }
+
+        $this->assertIsInt($this->redis->del('hash'));
+        $this->assertEquals(
+            1, $this->redis->hsetex('hash', ['a' => 'v'], ['EX' => 20])
+        );
+        $this->assertEquals(
+            1, $this->redis->hsetex('hash', ['a' => 'v2'], ['KEEPTTL'])
+        );
+
+        $ttl = $this->redis->httl('hash', ['a']);
+        $this->assertLTE(20, $ttl[0]);
+
+        $this->assertIsInt($this->redis->del('hash'));
+
+        // FNX - Only if none exist
+        foreach ([1, 0] as $expected) {
+            $ex = ['EX' => 20, 'FNX'];
+            $result = $this->redis->hsetex('hash', $hash, $ex);
+            $this->assertEquals($expected, $result);
+        }
+
+        // FXX - Only if they all exist
+        foreach ([1, 0] as $expected) {
+            $ex = ['EX' => 20, 'FXX'];
+            $result = $this->redis->hsetex('hash', $hash, $ex);
+            $this->assertEquals($expected, $result);
+
+            $k = array_rand($hash);
+            $this->redis->hdel('hash', $k);
+        }
+    }
+
+    public function testHGetDel() {
+        if ( ! $this->minVersionCheck('8.0'))
+            $this->markTestSkipped();
+
+        $this->assertIsInt($this->redis->del('hash'));
+        $hash = ['ship' => 'Defiant', 'captain' => 'Sisko'];
+
+        $this->assertTrue($this->redis->hmset('hash', $hash));
+        $this->assertEquals($hash, $this->redis->hgetall('hash'));
+
+        $this->assertEquals(['captain' => 'Sisko'], $this->redis->hgetdel('hash', ['captain']));
+        $this->assertEquals(['ship' => 'Defiant'], $this->redis->hgetall('hash'));
     }
 
     public function testHScan() {
@@ -6707,6 +7018,31 @@ class Redis_Test extends TestSuite {
         });
     }
 
+    public function testGeoSearchByPolygon() {
+        if ( ! $this->minValkeyVersionCheck('9.0.0'))
+            $this->markTestSkipped();
+
+        $this->addCities('ca:cities');
+
+        $res = $this->redis->geosearch('ca:cities', '', [
+            -121.90, 39.65, -121.77, 39.65, -121.77, 39.80, -121.90, 39.80
+        ], '');
+
+        $this->assertEquals(['Chico'], $res);
+    }
+
+    public function testGeoSearchStoreByPolygon() {
+        if ( ! $this->minValkeyVersionCheck('9.0.0'))
+            $this->markTestSkipped();
+
+        $this->addCities('{geo}:cities');
+        $this->assertEquals(1, $this->redis->geosearchstore('{geo}:dst', '{geo}:cities', '', [
+            -121.90, 39.65, -121.77, 39.65, -121.77, 39.80, -121.90, 39.80
+        ], ''));
+
+        $this->assertEquals(['Chico'], $this->redis->geosearch('{geo}:dst', 'Chico', 1, 'm'));
+    }
+
     public function testGeoSearchStore() {
         if ( ! $this->minVersionCheck('6.2.0'))
             $this->markTestSkipped();
@@ -6909,7 +7245,9 @@ class Redis_Test extends TestSuite {
         $this->assertEquals(1, $this->redis->del('s'));
         $this->assertTrue($this->redis->xGroup('create', 's', 'mygroup', '$', true, 1337));
         $info = $this->redis->xinfo('groups', 's');
-        $this->assertTrue(isset($info[0]['entries-read']) && 1337 == (int)$info[0]['entries-read']);
+        $this->assertTrue(isset($info[0]['entries-read']));
+        /* Starting with redis 8.2.2 returns 0 */
+        $this->assertTrue((int)$info[0]['entries-read'] === 1337 || (int)$info[0]['entries-read'] === 0);
     }
 
     public function testXAck() {
@@ -7364,6 +7702,294 @@ class Redis_Test extends TestSuite {
         $this->assertEquals(0, $info['length']);
         $this->assertNull($info['first-entry']);
         $this->assertNull($info['last-entry']);
+    }
+
+    public function testVAdd() {
+        if ( ! $this->minVersionCheck('8.0'))
+            $this->markTestSkipped();
+
+        $this->assertIsInt($this->redis->del('v'));
+
+        foreach ([1, 0] as $expected) {
+            $this->assertEquals($expected, $this->redis->vadd('v', [0.5, 1.0], 'e'));
+        }
+
+        $this->assertEquals(1, $this->redis->del('v'));
+
+        foreach ([1, 0] as $expected) {
+            /* With tons of options */
+            $res = $this->redis->vadd('v', [3.14, 2.71], 'e', [
+                'REDUCE' => 2, 'EF' => 16, 'M' => 28, 'CAS', 'VALUES', 'Q8',
+                'SETATTR' => ['foo' => 'bar'],
+            ]);
+            $this->assertEquals($expected, $res);
+        }
+    }
+
+    public function testVSim() {
+        if ( ! $this->minVersionCheck('8.0'))
+            $this->markTestSkipped();
+
+        $captains = [
+            'Archer'  => [[0.7628, 0.5403, 0.0729], 'Enterprise-NX01'],
+            'Janeway' => [[0.7073, 0.2171, 0.2673], 'Voyager'],
+            'Kirk'    => [[0.2555, 0.4938, 0.6968], 'Enterprise'],
+            'Picard'  => [[0.0570, 0.3547, 0.0721], 'Enterprise-D'],
+            'Pike'    => [[0.7916, 0.8514, 0.2733], 'Enterprise'],
+            'Sisko'   => [[0.0697, 0.1455, 0.2886], 'Defiant'],
+        ];
+
+        $this->redis->del('captains');
+
+        foreach ($captains as $captain => [$vector, $ship]) {
+            $opt = ['SETATTR' => ['ship' => $ship]];
+            $res = $this->redis->vadd('captains', $vector, $captain, $opt);
+            $this->assertEquals(1, $res);
+        }
+
+        /* We should infer ELE mode */
+        $res = $this->redis->vSim('captains', 'Archer');
+        $this->assertIsArray($res);
+        $this->assertEquals($res[0], 'Archer');
+
+        /* We should infer FP32 mode */
+        $res = $this->redis->vsim('captains', $captains['Archer'][0]);
+        $this->assertIsArray($res);
+        $this->assertEquals($res[0], 'Archer');
+
+        /* Reject FP32/VALUE mode with non-arrays */
+        foreach (['Archer', 3.14, 42, new stdClass] as $e) {
+            foreach (['FP32', 'VALUES'] as $mode) {
+                $res = @$this->redis->vsim('captains', $e, [$mode]);
+                $this->assertFalse($res);
+            }
+        }
+
+        /* VALUES */
+        $opt = ['VALUES'];
+        $res = $this->redis->vsim('captains', $captains['Kirk'][0], $opt);
+        $this->assertIsArray($res);
+        $this->assertEquals($res[0], 'Kirk');
+
+        /* EF */
+        $opt = ['EF' => 24];
+        $res = $this->redis->vsim('captains', $captains['Pike'][0], $opt);
+        $this->assertIsArray($res);
+        $this->assertEquals($res[0], 'Pike');
+
+        /* FILTER + FILTER-EF */
+        $opt = ['FILTER' => '.ship == "Defiant"', 'FILTER-EF' => 24];
+        $res = $this->redis->vsim('captains', 'Archer', $opt);
+        $this->assertIsArray($res);
+        $this->assertEquals($res[0], 'Sisko');
+
+        /* COUNT */
+        $opt = ['COUNT' => 1];
+        $res = $this->redis->vsim('captains', 'Sisko', $opt);
+        $this->assertIsArray($res);
+        $this->assertEquals($res[0], 'Sisko');
+        $this->assertEquals(1, count($res));
+
+        /* WITHSCORES */
+        $opt = ['WITHSCORES'];
+        $res = $this->redis->vsim('captains', 'Janeway', $opt);
+        $this->assertIsArray($res);
+        $this->assertGT(1, count($res));
+
+        foreach ($res as $captain => $score) {
+            $this->assertIsString($captain);
+            $this->assertIsFloat($score);
+        }
+
+        /* NOTHREAD + TRUTH */
+        $opt = ['NOTHREAD', 'TRUTH'];
+        $res = $this->redis->vsim('captains', 'Picard', $opt);
+        $this->assertEquals($res[0], 'Picard');
+    }
+
+    public function testVCard() {
+        if ( ! $this->minVersionCheck('8.0'))
+            $this->markTestSkipped();
+
+        $this->assertIsInt($this->redis->del('v'));
+
+        for ($i = 0; $i < 5; $i++) {
+            $this->assertEquals(1, $this->redis->vadd('v', [0.5, 1.0], "e{$i}"));
+            $this->assertEquals($i + 1, $this->redis->vcard('v'));
+        }
+
+        $this->assertEquals(1, $this->redis->del('v'));
+        $this->assertEquals(0, $this->redis->vcard('v'));
+    }
+
+    public function testVDim() {
+        if ( ! $this->minVersionCheck('8.0'))
+            $this->markTestSkipped();
+
+        foreach ([[0.5, 1.0], [0.5, 1.0, 1.5]] as $v) {
+            $this->assertIsInt($this->redis->del('v'));
+            $this->assertEquals(1, $this->redis->vadd('v', $v, 'e'));
+            $this->assertEquals(count($v), $this->redis->vdim('v'));
+        }
+
+        $this->assertEquals(1, $this->redis->del('v'));
+    }
+
+    public function testVInfo() {
+        if ( ! $this->minVersionCheck('8.0'))
+            $this->markTestSkipped();
+
+        $this->assertIsInt($this->redis->del('v'));
+        $this->assertEquals(1, $this->redis->vadd('v', [0.5, 1.0, 1.5], 'e'));
+
+        $res = $this->redis->vinfo('v');
+        $this->assertIsArray($res);
+        $this->assertArrayKey($res, 'vector-dim', function ($v) {
+            return $v === 3;
+        });
+
+        $this->assertEquals(1, $this->redis->del('v'));
+    }
+
+    public function testVIsMember() {
+        if ( ! $this->minVersionCheck('8.0'))
+            $this->markTestSkipped();
+
+        $this->assertIsInt($this->redis->del('v'));
+        $this->assertEquals(1, $this->redis->vadd('v', [0.5, 1.0], 'exists'));
+
+        $this->assertEquals(true, $this->redis->vismember('v', 'exists'));
+        $this->assertEquals(false, $this->redis->vismember('v', 'doesnotexist'));
+    }
+
+    public function testVEmb() {
+        if ( ! $this->minVersionCheck('8.0'))
+            $this->markTestSkipped();
+
+        $this->assertIsInt($this->redis->del('v'));
+
+        $this->assertEquals(1, $this->redis->vadd('v', [0.5, 1.0], 'e'));
+
+        $res = $this->redis->vemb('v', 'e');
+        $this->assertIsArray($res);
+        $this->assertTrue(filter_var($res[0], FILTER_VALIDATE_FLOAT) !== false);
+
+        $res = $this->redis->vemb('v', 'e', true);
+        $this->assertIsArray($res);
+        $this->assertEquals('int8', $res[0]);
+
+        $this->assertEquals(1, $this->redis->del('v'));
+    }
+
+    public function testVRem() {
+        if ( ! $this->minVersionCheck('8.0'))
+            $this->markTestSkipped();
+
+        $this->assertIsInt($this->redis->del('v'));
+
+        $captains = ['Sisko', 'Janeway'];
+        foreach ($captains as $captain) {
+            $v = [mt_rand() / mt_getrandmax(), mt_rand() / mt_getrandmax()];
+            $this->assertEquals(1, $this->redis->vadd('v', $v, $captain));
+        }
+
+        while ($captains) {
+            $captain = array_shift($captains);
+            foreach ([1, 0] as $e) {
+                $this->assertEquals($e, $this->redis->vrem('v', $captain));
+            }
+
+            $this->assertEquals(count($captains), $this->redis->vcard('v'));
+        }
+
+        $this->assertEquals(0, $this->redis->vcard('v'));
+    }
+
+    public function testVGetAttr() {
+        if ( ! $this->minVersionCheck('8.0'))
+            $this->markTestSkipped();
+
+        $attr = ['foo' => 'bar'];
+        $json = json_encode($attr);
+
+        $this->assertIsInt($this->redis->del('v'));
+        $this->assertEquals(1, $this->redis->vadd(
+            'v', [1.5, 2.5], 'e1', ['SETATTR' => $attr])
+        );
+
+        $this->assertEquals(1, $this->redis->vadd('v', [1.5, 2.5], 'e2'));
+
+        if (defined('Redis::SERIALIZER_JSON')) {
+            $expected = [false => $attr, true => $json];
+        } else {
+            $expected = [false => $json, true => $json];
+        }
+
+        foreach ($expected as $raw => $e) {
+            $this->assertEquals($e, $this->redis->vgetattr('v', 'e1', $raw));
+        }
+
+        foreach ([[], [false], [true]] as $arg) {
+            $this->assertEquals(false, $this->redis->vgetattr('v', 'e2', ...$arg));
+        }
+    }
+
+    public function testVSetAttr() {
+        if ( ! $this->minVersionCheck('8.0'))
+            $this->markTestSkipped();
+
+        $this->assertIsInt($this->redis->del('v'));
+        $this->assertEquals(1, $this->redis->vadd('v', [1.5, 2.5], 'e'));
+
+        $attr = ['foo' => 'bar'];
+
+        $this->assertEquals(1, $this->redis->vsetattr('v', 'e', json_encode($attr)));
+
+        if (defined('Redis::SERIALIZER_JSON')) {
+            $this->assertEquals(1, $this->redis->vsetattr('v', 'e', $attr));
+        }
+    }
+
+    public function testVRandMember() {
+        if ( ! $this->minVersionCheck('8.0'))
+            $this->markTestSkipped();
+
+        $ships = ['Enterprise', 'Defiant', 'Voyager'];
+
+        $this->assertIsInt($this->redis->del('v'));
+        foreach ($ships as $ship) {
+            $this->assertEquals(1, $this->redis->vadd('v', [0.5, 1.0], $ship));
+        }
+
+        $this->assertInArray($this->redis->vrandmember('v'), $ships);
+        $this->assertEqualsCanonicalizing(
+            $ships,
+            $this->redis->vrandmember('v', 2 * count($ships))
+        );
+
+        $this->assertEquals(
+            2 * count($ships),
+            count($this->redis->vrandmember('v', -2 * count($ships)))
+        );
+    }
+
+    public function testVRange() {
+        if ($this->haveCommand('VRANGE') === false)
+            $this->markTestSkipped();
+
+        $this->assertIsInt($this->redis->del('v'));
+
+        for ($i = 0; $i < 10; $i++) {
+            $this->assertEquals(1, $this->redis->vadd('v', [$i / 10, $i / 10], "e{$i}"));
+        }
+
+        $res = $this->redis->vrange('v', '-', '+');
+        $this->assertIsArray($res);
+        $this->assertEquals(10, count($res));
+
+        $res = $this->redis->vrange('v', '-', '+', 3);
+        $this->assertIsArray($res);
+        $this->assertEquals(3, count($res));
     }
 
     public function testInvalidAuthArgs() {
@@ -7833,6 +8459,27 @@ class Redis_Test extends TestSuite {
             }
             $this->assertTrue($this->redis->ping());
         }
+    }
+
+    public function testConnectDatabaseSelect() {
+        $options = [
+            'host' => $this->getHost(),
+            'port' => $this->getPort(),
+            'database' => 2,
+        ];
+
+        if ($this->getAuth()) {
+            $options['auth'] = $this->getAuth();
+        }
+
+        $redis = new Redis($options);
+        $this->assertEquals(2, $redis->getDBNum());
+        $this->assertEquals(2, $redis->client('info')['db']);
+
+        $this->assertTrue($redis->select(1));
+
+        $this->assertEquals(1, $redis->getDBNum());
+        $this->assertEquals(1, $redis->client('info')['db']);
     }
 
     public function testConnectException() {

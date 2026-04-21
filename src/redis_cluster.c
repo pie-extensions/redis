@@ -43,6 +43,119 @@ zend_class_entry *redis_cluster_exception_ce;
 #include "redis_cluster_arginfo.h"
 #endif
 
+static void
+cluster_enqueue_response(redisCluster *c, short slot, cluster_cb cb, void *ctx)
+{
+    clusterFoldItem *item;
+
+    item = emalloc(sizeof(clusterFoldItem));
+    item->callback = cb;
+    item->slot = slot;
+    item->ctx = ctx;
+    item->next = NULL;
+    item->flags = c->flags->flags;
+
+    if (UNEXPECTED(c->multi_head == NULL)) {
+        c->multi_head = item;
+        c->multi_curr = item;
+    } else {
+        c->multi_curr->next = item;
+        c->multi_curr = item;
+    }
+}
+
+static void cluster_free_queue(redisCluster *c) {
+    clusterFoldItem *item = c->multi_head, *tmp;
+
+    while (item) {
+        tmp = item->next;
+        efree(item);
+        item = tmp;
+    }
+
+    c->multi_head = NULL;
+    c->multi_curr = NULL;
+}
+
+static void cluster_reset_multi(redisCluster *c) {
+    redisClusterNode *node;
+    ZEND_HASH_FOREACH_PTR(c->nodes, node) {
+        if (node == NULL)
+            continue;
+        node->sock->watching = 0;
+        node->sock->mode = ATOMIC;
+    } ZEND_HASH_FOREACH_END();
+
+    c->flags->watching = 0;
+    c->flags->mode = ATOMIC;
+}
+
+void
+cluster_process_cmd(INTERNAL_FUNCTION_PARAMETERS, redisCluster *c,
+                    redis_cmd_cb cmd_cb, cluster_cb resp_cb, int readonly)
+{
+    void *ctx = NULL;
+    int cmd_len;
+    short slot;
+    char *cmd;
+
+    c->readonly = readonly && CLUSTER_IS_ATOMIC(c);
+
+    if (cmd_cb(INTERNAL_FUNCTION_PARAM_PASSTHRU, c->flags, &cmd, &cmd_len, &slot,
+               &ctx) == FAILURE)
+    {
+        RETURN_FALSE;
+    }
+
+    if (cluster_send_command(c, slot, cmd, cmd_len) < 0 || c->err != NULL) {
+        efree(cmd);
+        RETURN_FALSE;
+    }
+
+    efree(cmd);
+
+    if (c->flags->mode == MULTI) {
+        cluster_enqueue_response(c, slot, resp_cb, ctx);
+        RETURN_ZVAL(getThis(), 1, 0);
+    }
+
+    resp_cb(INTERNAL_FUNCTION_PARAM_PASSTHRU, c, ctx);
+}
+
+void
+cluster_process_kw_cmd(INTERNAL_FUNCTION_PARAMETERS, redisCluster *c,
+                       const char *kw, redis_kw_cmd_cb cmd_cb, cluster_cb resp_cb,
+                       int readonly)
+{
+    void *ctx = NULL;
+    int cmd_len;
+    short slot;
+    char *cmd;
+
+    c->readonly = readonly && CLUSTER_IS_ATOMIC(c);
+
+    /* TODO: Update kw commands to take a const char * (and len to avoid strlen) */
+    if (cmd_cb(INTERNAL_FUNCTION_PARAM_PASSTHRU, c->flags, (char*)kw, &cmd, &cmd_len,
+               &slot, &ctx) == FAILURE)
+    {
+        RETURN_FALSE;
+    }
+
+    if (cluster_send_command(c, slot, cmd, cmd_len) < 0 || c->err != NULL) {
+        efree(cmd);
+        RETURN_FALSE;
+    }
+
+    efree(cmd);
+
+    if (c->flags->mode == MULTI) {
+        cluster_enqueue_response(c, slot, resp_cb, ctx);
+        RETURN_ZVAL(getThis(), 1, 0);
+    }
+
+    resp_cb(INTERNAL_FUNCTION_PARAM_PASSTHRU, c, ctx);
+}
+
 PHP_MINIT_FUNCTION(redis_cluster)
 {
     redis_cluster_ce = register_class_RedisCluster();
@@ -96,6 +209,7 @@ zend_object * create_cluster_context(zend_class_entry *class_type) {
     memcpy(&RedisCluster_handlers, zend_get_std_object_handlers(), sizeof(RedisCluster_handlers));
     RedisCluster_handlers.offset = XtOffsetOf(redisCluster, std);
     RedisCluster_handlers.free_obj = free_cluster_context;
+    RedisCluster_handlers.clone_obj = NULL;
 
     cluster->std.handlers = &RedisCluster_handlers;
 
@@ -275,15 +389,9 @@ PHP_METHOD(RedisCluster, close) {
     RETURN_TRUE;
 }
 
-static void
-cluster_get_passthru(INTERNAL_FUNCTION_PARAMETERS)
-{
-    CLUSTER_PROCESS_KW_CMD("GET", redis_key_cmd, cluster_bulk_resp, 1);
-}
-
 /* {{{ proto string RedisCluster::get(string key) */
 PHP_METHOD(RedisCluster, get) {
-    cluster_get_passthru(INTERNAL_FUNCTION_PARAM_PASSTHRU);
+    CLUSTER_PROCESS_KW_CMD("GET", redis_key_cmd, cluster_bulk_resp, 1);
 }
 /* }}} */
 
@@ -295,10 +403,7 @@ PHP_METHOD(RedisCluster, getdel) {
 
 /* {{{ proto array|false RedisCluster::getWithMeta(string key) */
 PHP_METHOD(RedisCluster, getWithMeta) {
-    redisCluster *c = GET_CONTEXT();
-    REDIS_ENABLE_FLAG(c->flags, PHPREDIS_WITH_METADATA);
-    cluster_get_passthru(INTERNAL_FUNCTION_PARAM_PASSTHRU);
-    REDIS_DISABLE_FLAG(c->flags, PHPREDIS_WITH_METADATA);
+    CLUSTER_PROCESS_KW_CMD("GET", redis_key_cmd, cluster_bulk_withmeta_resp, 1);
 }
 /* }}} */
 
@@ -333,9 +438,9 @@ distcmd_resp_handler(INTERNAL_FUNCTION_PARAMETERS, redisCluster *c, short slot,
 
     if (CLUSTER_IS_ATOMIC(c)) {
         // Process response now
-        cb(INTERNAL_FUNCTION_PARAM_PASSTHRU, c, (void*)ctx);
+        cb(INTERNAL_FUNCTION_PARAM_PASSTHRU, c, ctx);
     } else {
-        CLUSTER_ENQUEUE_RESPONSE(c, slot, cb, ctx);
+        cluster_enqueue_response(c, slot, cb, ctx);
     }
 
     // Clear out our command but retain allocated memory
@@ -696,6 +801,10 @@ PHP_METHOD(RedisCluster, del) {
     cluster_generic_delete(INTERNAL_FUNCTION_PARAM_PASSTHRU, "DEL", sizeof("DEL") - 1);
 }
 
+PHP_METHOD(RedisCluster, delifeq) {
+    CLUSTER_PROCESS_KW_CMD("DELIFEQ", redis_kv_cmd, cluster_long_resp, 0);
+}
+
 /* {{{ proto array RedisCluster::unlink(string key1, string key2, ... keyN) */
 PHP_METHOD(RedisCluster, unlink) {
     cluster_generic_delete(INTERNAL_FUNCTION_PARAM_PASSTHRU, "UNLINK", sizeof("UNLINK") - 1);
@@ -895,7 +1004,8 @@ PHP_METHOD(RedisCluster, spop) {
 
 /* {{{ proto string|array RedisCluster::srandmember(string key, [long count]) */
 PHP_METHOD(RedisCluster, srandmember) {
-    CLUSTER_PROCESS_CMD(srandmember, cluster_srandmember_resp, 1);
+    CLUSTER_PROCESS_KW_CMD("SRANDMEMBER", redis_randmember_cmd,
+                           cluster_randmember_resp, 1);
 }
 
 /* {{{ proto string RedisCluster::strlen(string key) */
@@ -1169,6 +1279,12 @@ PHP_METHOD(RedisCluster, hget) {
 }
 /* }}} */
 
+/* {{{ proto string RedisCluster::hgetWithMeta(string key, string mem) */
+PHP_METHOD(RedisCluster, hgetWithMeta) {
+    CLUSTER_PROCESS_KW_CMD("HGET", redis_key_str_cmd, cluster_bulk_withmeta_resp, 1);
+}
+/* }}} */
+
 /* {{{ proto bool RedisCluster::hset(string key, string mem, string val) */
 PHP_METHOD(RedisCluster, hset) {
     CLUSTER_PROCESS_CMD(hset, cluster_long_resp, 0);
@@ -1212,6 +1328,49 @@ PHP_METHOD(RedisCluster, hmset) {
 }
 /* }}} */
 
+PHP_METHOD(RedisCluster, hexpire) {
+    CLUSTER_PROCESS_KW_CMD("HEXPIRE",
+                           redis_hexpire_cmd, cluster_variant_resp, 0);
+}
+
+PHP_METHOD(RedisCluster, hpexpire) {
+    CLUSTER_PROCESS_KW_CMD("HPEXPIRE",
+                           redis_hexpire_cmd, cluster_variant_resp, 0);
+}
+
+PHP_METHOD(RedisCluster, hexpireat) {
+    CLUSTER_PROCESS_KW_CMD("HEXPIREAT",
+                           redis_hexpire_cmd, cluster_variant_resp, 0);
+}
+
+PHP_METHOD(RedisCluster, hpexpireat) {
+    CLUSTER_PROCESS_KW_CMD("HPEXPIREAT",
+                           redis_hexpire_cmd, cluster_variant_resp, 0);
+}
+
+PHP_METHOD(RedisCluster, httl) {
+    CLUSTER_PROCESS_KW_CMD("HTTL", redis_httl_cmd, cluster_variant_resp, 1);
+}
+
+PHP_METHOD(RedisCluster, hpttl) {
+    CLUSTER_PROCESS_KW_CMD("HPTTL", redis_httl_cmd, cluster_variant_resp, 1);
+}
+
+
+PHP_METHOD(RedisCluster, hexpiretime) {
+    CLUSTER_PROCESS_KW_CMD("HEXPIRETIME", redis_httl_cmd,
+                           cluster_variant_resp, 1);
+}
+
+PHP_METHOD(RedisCluster, hpexpiretime) {
+    CLUSTER_PROCESS_KW_CMD("HPEXPIRETIME", redis_httl_cmd,
+                           cluster_variant_resp, 1);
+}
+
+PHP_METHOD(RedisCluster, hpersist) {
+    CLUSTER_PROCESS_KW_CMD("HPERSIST", redis_httl_cmd, cluster_variant_resp, 0);
+}
+
 /* {{{ proto bool RedisCluster::hrandfield(string key, [array $options]) */
 PHP_METHOD(RedisCluster, hrandfield) {
     CLUSTER_PROCESS_CMD(hrandfield, cluster_hrandfield_resp, 1);
@@ -1229,6 +1388,18 @@ PHP_METHOD(RedisCluster, hmget) {
     CLUSTER_PROCESS_CMD(hmget, cluster_mbulk_assoc_resp, 1);
 }
 /* }}} */
+
+PHP_METHOD(RedisCluster, hgetex) {
+    CLUSTER_PROCESS_CMD(hgetex, cluster_mbulk_assoc_resp, 0);
+}
+
+PHP_METHOD(RedisCluster, hsetex) {
+    CLUSTER_PROCESS_CMD(hsetex, cluster_long_resp, 0);
+}
+
+PHP_METHOD(RedisCluster, hgetdel) {
+    CLUSTER_PROCESS_CMD(hgetdel, cluster_mbulk_assoc_resp, 0);
+}
 
 /* {{{ proto array RedisCluster::hstrlen(string key, string field) */
 PHP_METHOD(RedisCluster, hstrlen) {
@@ -2054,8 +2225,8 @@ PHP_METHOD(RedisCluster, exec) {
                 CLUSTER_THROW_EXCEPTION("Error processing EXEC across the cluster", 0);
 
                 // Free our queue, reset MULTI state
-                CLUSTER_FREE_QUEUE(c);
-                CLUSTER_RESET_MULTI(c);
+                cluster_free_queue(c);
+                cluster_reset_multi(c);
 
                 RETURN_FALSE;
             }
@@ -2070,8 +2241,8 @@ PHP_METHOD(RedisCluster, exec) {
 
     // Free our callback queue, any enqueued distributed command context items
     // and reset our MULTI state.
-    CLUSTER_FREE_QUEUE(c);
-    CLUSTER_RESET_MULTI(c);
+    cluster_free_queue(c);
+    cluster_reset_multi(c);
 }
 
 /* {{{ proto bool RedisCluster::discard() */
@@ -2084,10 +2255,10 @@ PHP_METHOD(RedisCluster, discard) {
     }
 
     if (cluster_abort_exec(c) < 0) {
-        CLUSTER_RESET_MULTI(c);
+        cluster_reset_multi(c);
     }
 
-    CLUSTER_FREE_QUEUE(c);
+    cluster_free_queue(c);
 
     RETURN_TRUE;
 }
@@ -2461,7 +2632,7 @@ PHP_METHOD(RedisCluster, acl) {
     if (CLUSTER_IS_ATOMIC(c)) {
         cb(INTERNAL_FUNCTION_PARAM_PASSTHRU, c, NULL);
     } else {
-        CLUSTER_ENQUEUE_RESPONSE(c, slot, cb, ctx);
+        cluster_enqueue_response(c, slot, cb, ctx);
     }
 
     efree(cmdstr.c);
@@ -2666,7 +2837,7 @@ PHP_METHOD(RedisCluster, info) {
     if (CLUSTER_IS_ATOMIC(c)) {
         cluster_info_resp(INTERNAL_FUNCTION_PARAM_PASSTHRU, c, NULL);
     } else {
-        CLUSTER_ENQUEUE_RESPONSE(c, slot, cluster_info_resp, ctx);
+        cluster_enqueue_response(c, slot, cluster_info_resp, ctx);
     }
 
     efree(cmdstr.c);
@@ -2741,7 +2912,7 @@ PHP_METHOD(RedisCluster, client) {
         cb(INTERNAL_FUNCTION_PARAM_PASSTHRU, c, NULL);
     } else {
         void *ctx = NULL;
-        CLUSTER_ENQUEUE_RESPONSE(c, slot, cb, ctx);
+        cluster_enqueue_response(c, slot, cb, ctx);
     }
 
     efree(cmd);
@@ -2944,7 +3115,7 @@ PHP_METHOD(RedisCluster, waitaof) {
     if (CLUSTER_IS_ATOMIC(c)) {
         cluster_variant_resp(INTERNAL_FUNCTION_PARAM_PASSTHRU, c, NULL);
     } else {
-        CLUSTER_ENQUEUE_RESPONSE(c, slot, cluster_variant_resp, ctx);
+        cluster_enqueue_response(c, slot, cluster_variant_resp, ctx);
     }
 
     smart_string_free(&cmdstr);
@@ -3006,15 +3177,68 @@ PHP_METHOD(RedisCluster, ping) {
         }
     } else {
         if (arg != NULL) {
-            CLUSTER_ENQUEUE_RESPONSE(c, slot, cluster_bulk_resp, ctx);
+            cluster_enqueue_response(c, slot, cluster_bulk_resp, ctx);
         } else {
-            CLUSTER_ENQUEUE_RESPONSE(c, slot, cluster_variant_resp, ctx);
+            cluster_enqueue_response(c, slot, cluster_variant_resp, ctx);
         }
 
         RETURN_ZVAL(getThis(), 1, 0);
     }
 }
 /* }}} */
+
+PHP_METHOD(RedisCluster, vadd) {
+    CLUSTER_PROCESS_CMD(vadd, cluster_long_resp, 0);
+}
+
+PHP_METHOD(RedisCluster, vsim) {
+    CLUSTER_PROCESS_CMD(vsim, cluster_zrange_resp, 1);
+}
+
+PHP_METHOD(RedisCluster, vcard) {
+    CLUSTER_PROCESS_KW_CMD("VCARD", redis_key_cmd, cluster_long_resp, 1);
+}
+
+PHP_METHOD(RedisCluster, vdim) {
+    CLUSTER_PROCESS_KW_CMD("VDIM", redis_key_cmd, cluster_long_resp, 1);
+}
+
+PHP_METHOD(RedisCluster, vinfo) {
+    CLUSTER_PROCESS_KW_CMD("VINFO", redis_key_cmd, cluster_vinfo_resp, 1);
+}
+
+PHP_METHOD(RedisCluster, vismember) {
+    CLUSTER_PROCESS_KW_CMD("VISMEMBER", redis_kv_cmd, cluster_1_resp, 1);
+}
+
+PHP_METHOD(RedisCluster, vemb) {
+    CLUSTER_PROCESS_CMD(vemb, cluster_vemb_resp, 1);
+}
+
+PHP_METHOD(RedisCluster, vrandmember) {
+    CLUSTER_PROCESS_KW_CMD("VRANDMEMBER", redis_randmember_cmd,
+                           cluster_randmember_resp, 1);
+}
+
+PHP_METHOD(RedisCluster, vrange) {
+    CLUSTER_PROCESS_KW_CMD("VRANGE", redis_vrange_cmd, cluster_mbulk_resp, 1);
+}
+
+PHP_METHOD(RedisCluster, vrem) {
+    CLUSTER_PROCESS_KW_CMD("VREM", redis_kv_cmd, cluster_long_resp, 0);
+}
+
+PHP_METHOD(RedisCluster, vlinks) {
+    CLUSTER_PROCESS_CMD(vlinks, cluster_vlinks_resp, 1);
+}
+
+PHP_METHOD(RedisCluster, vgetattr) {
+    CLUSTER_PROCESS_CMD(vgetattr, cluster_vgetattr_resp, 1);
+}
+
+PHP_METHOD(RedisCluster, vsetattr) {
+    CLUSTER_PROCESS_CMD(vsetattr, cluster_long_resp, 0);
+}
 
 /* {{{ proto long RedisCluster::xack(string key, string group, array ids) }}} */
 PHP_METHOD(RedisCluster, xack) {
@@ -3123,7 +3347,7 @@ PHP_METHOD(RedisCluster, echo) {
         cluster_bulk_resp(INTERNAL_FUNCTION_PARAM_PASSTHRU, c, NULL);
     } else {
         void *ctx = NULL;
-        CLUSTER_ENQUEUE_RESPONSE(c, slot, cluster_bulk_resp, ctx);
+        cluster_enqueue_response(c, slot, cluster_bulk_resp, ctx);
     }
 
     efree(cmd);
@@ -3176,7 +3400,7 @@ PHP_METHOD(RedisCluster, rawcommand) {
         cluster_variant_raw_resp(INTERNAL_FUNCTION_PARAM_PASSTHRU, c, NULL);
     } else {
         void *ctx = NULL;
-        CLUSTER_ENQUEUE_RESPONSE(c, slot, cluster_variant_raw_resp, ctx);
+        cluster_enqueue_response(c, slot, cluster_variant_raw_resp, ctx);
     }
 
     efree(cmd);
@@ -3191,7 +3415,7 @@ PHP_METHOD(RedisCluster, command) {
 }
 
 PHP_METHOD(RedisCluster, copy) {
-    CLUSTER_PROCESS_CMD(copy, cluster_1_resp, 0)
+    CLUSTER_PROCESS_CMD(copy, cluster_1_resp, 0);
 }
 
 /* vim: set tabstop=4 softtabstop=4 expandtab shiftwidth=4: */

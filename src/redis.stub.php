@@ -66,6 +66,14 @@ class Redis {
     /**
      *
      * @var int
+     * @cvalue REDIS_VECTORSET
+     *
+     */
+    public const REDIS_VECTORSET = UNKNOWN;
+
+    /**
+     *
+     * @var int
      * @cvalue ATOMIC
      *
      */
@@ -988,6 +996,16 @@ class Redis {
     public function del(array|string $key, string ...$other_keys): Redis|int|false;
 
     /**
+     * Delete a key if it's equal to the specified value. This command is
+     * specific to Valkey >= 9.0
+     *
+     * @param string $key   The key to delete
+     * @param mixed  $value The value to compare against the key's value.
+     * @return Redis|int|false Returns 1 if the key was deleted, 0 if it was not.
+     */
+    public function delifeq(string $key, mixed $value): Redis|int|false;
+
+    /**
      * @deprecated
      * @alias Redis::del
      */
@@ -1733,13 +1751,24 @@ class Redis {
      * Read every field and value from a hash.
      *
      * @param string $key The hash to query.
-     * @return Redis|array<string, mixed>|false All fields and values or false if the key didn't exist.
+     * @return Redis|array<string|int, mixed>|false All fields and values or false if the key didn't exist.
      *
      * @see https://redis.io/commands/hgetall
      *
      * @example $redis->hgetall('myhash');
      */
     public function hGetAll(string $key): Redis|array|false;
+
+    /**
+     * Retrieve a value and metadata of hash field.
+     *
+     * @param  string  $key The key to query
+     * @param  string  $member The key to query
+     * @return mixed
+     *
+     * @example $redis->hgetWithMeta('foo', 'field');
+     */
+    public function hGetWithMeta(string $key, string $member): mixed;
 
     /**
      * Increment a hash field's value by an integer
@@ -1813,6 +1842,39 @@ class Redis {
      * @example $redis->hMGet('player:1', ['name', 'score']);
      */
     public function hMget(string $key, array $fields): Redis|array|false;
+
+    /**
+     * Get one or more fields of a hash while optionally setting expiration
+     * information
+     *
+     * @param string $key          The hash to query.
+     * @param array $fields        One or more fields to query in the hash.
+     * @param string|array $expiry Info about the expiration
+     *
+     * @return Redis|array|false The fields and values or false if the key didn't exist.
+     */
+    public function hgetex(string $key, array $fields, string|array|null $expiry = null): Redis|array|false;
+
+    /**
+     * Set one or more fields in a hash with optional expiration information.
+     *
+     * @param string $key         The hash to create/update.
+     * @param array $fields       An array with fields values.
+     * @param array|null $expiry  Info about the expiration
+     *
+     * @return Redis|int|false One if fields were set zero if not.
+     */
+    public function hsetex(string $key, array $fields, ?array $expiry = null): Redis|int|false;
+
+    /**
+     * Get one or more fields and delete them
+     *
+     * @param string $key         The hash in question
+     * @param array $fields       One or more fields
+     *
+     * @return Redis|array|false  The field and values or false on failure
+     */
+    public function hgetdel(string $key, array $fields): Redis|array|false;
 
     /**
      * Add or update one or more hash fields and values
@@ -1913,6 +1975,121 @@ class Redis {
      */
     public function hVals(string $key): Redis|array|false;
 
+    /**
+     * Set the expiration on one or more fields in a hash.
+     *
+     * @param string $key    The hash to update.
+     * @param int    $ttl    The time to live in seconds.
+     * @param array  $fields The fields to set the expiration on.
+     * @param string|null $option An optional mode (NX, XX, ETC)
+     * @return Redis|array|false
+     *
+     * @see https://redis.io/commands/hexpire
+     */
+    public function hexpire(string $key, int $ttl, array $fields,
+                            ?string $mode = NULL): Redis|array|false;
+
+    /**
+     * Set the expiration on one or more fields in a hash in milliseconds.
+     *
+     * @param string $key    The hash to update.
+     * @param int    $ttl    The time to live in milliseconds.
+     * @param array  $fields The fields to set the expiration on.
+     * @param string|null $option An optional mode (NX, XX, ETC)
+     * @return Redis|array|false
+     *
+     * @see https://redis.io/commands/hexpire
+     */
+    public function hpexpire(string $key, int $ttl, array $fields,
+                            ?string $mode = NULL): Redis|array|false;
+
+    /**
+     * Set the expiration time on one or more fields of a hash.
+     *
+     * @param string $key    The hash to update.
+     * @param int    $time   The time to live in seconds.
+     * @param array  $fields The fields to set the expiration on.
+     * @param string|null $option An optional mode (NX, XX, ETC)
+     * @return Redis|array|false
+     *
+     * @see https://redis.io/commands/hexpire
+     */
+    public function hexpireat(string $key, int $time, array $fields,
+                              ?string $mode = NULL): Redis|array|false;
+
+    /**
+     * Set the expiration time on one or more fields of a hash in milliseconds.
+     *
+     * @param string $key    The hash to update.
+     * @param int    $mstime The time to live in milliseconds.
+     * @param array  $fields The fields to set the expiration on.
+     * @param string|null $option An optional mode (NX, XX, ETC)
+     * @return Redis|array|false
+     *
+     * @see https://redis.io/commands/hexpire
+     */
+    public function hpexpireat(string $key, int $mstime, array $fields,
+                               ?string $mode = NULL): Redis|array|false;
+
+    /**
+     * Get the TTL of one or more fields in a hash
+     *
+     * @param string $key    The hash to query.
+     * @param array  $fields The fields to query.
+     *
+     * @return Redis|array|false
+     *
+     * @see https://redis.io/commands/httl
+     */
+    public function httl(string $key, array $fields): Redis|array|false;
+
+    /**
+     * Get the millisecond TTL of one or more fields in a hash
+     *
+     * @param string $key    The hash to query.
+     * @param array  $fields The fields to query.
+     *
+     * @return Redis|array|false
+     *
+     * @see https://redis.io/commands/hpttl
+     */
+    public function hpttl(string $key, array $fields): Redis|array|false;
+
+    /**
+     * Get the expiration time of one or more fields in a hash
+     *
+     * @param string $key    The hash to query.
+     * @param array  $fields The fields to query.
+     *
+     * @return Redis|array|false
+     *
+     * @see https://redis.io/commands/hexpiretime
+     */
+    public function hexpiretime(string $key, array $fields): Redis|array|false;
+
+    /**
+     * Get the expiration time in milliseconds of one or more fields in a hash
+     *
+     * @param string $key    The hash to query.
+     * @param array  $fields The fields to query.
+     *
+     * @return Redis|array|false
+     *
+     * @see https://redis.io/commands/hpexpiretime
+     */
+    public function hpexpiretime(string $key, array $fields): Redis|array|false;
+
+    /**
+     * Persist one or more hash fields
+     *
+     * @param string $key    The hash to query.
+     * @param array  $fields The fields to query.
+     *
+     * @return Redis|array|false
+     *
+     * @see https://redis.io/commands/hpersist
+     */
+    public function hpersist(string $key, array $fields): Redis|array|false;
 
     /**
      * Iterate over the fields and values of a hash in an incremental fashion.
@@ -3575,6 +3752,7 @@ class Redis {
      *     Redis::REDIS_ZSET
      *     Redis::REDIS_HASH
      *     Redis::REDIS_STREAM
+     *     Redis::REDIS_VECTORSET
      *
      * @example
      * foreach ($redis->keys('*') as $key) {
@@ -4047,6 +4225,147 @@ class Redis {
      * @example $redis->xRevRange('stream', '+', '-');
      */
     public function xrevrange(string $key, string $end, string $start, int $count = -1): Redis|array|bool;
+
+    /**
+     * Add to a vector set
+     *
+     * @param string $key         The vector set to add to.
+     * @param array $values       A non-empty array of floating point values
+     * @param mixed $element      The element to add to the vector set.
+     * @param array|null $options An optional options array
+     *
+     * @return Redis|int|false One if the key was added zero if not.
+     */
+    public function vadd(string $key, array $values, mixed $element, array|null $options = null): Redis|int|false;
+
+    /**
+     * Query similarity of a vector by element or scores
+     *
+     * @param string $key          The vector set to query.
+     * @param mixed $member        Either an element or array of scores. PhpRedis
+     *                             will attempt to infer which it is, but since
+     *                             there can be some ambiguity here due to
+     *                             serialization you can also explicitly specify
+     *                             `ELE`, `VALUES`, or `FP32` in the options
+     *                             array.
+     * @param array|null $options  An optional options array
+     *
+     * @return Redis|array|false   An array of elements and their similarity scores, or false on failure.
+     */
+    public function vsim(string $key, mixed $member, array|null $options = null): Redis|array|false;
+
+    /**
+     * Get the length of a vector set
+     *
+     * @param string $key The vector set to query.
+     *
+     * @return Redis|int|false The number of elements in the vector set or false on failure.
+     */
+    public function vcard(string $key): Redis|int|false;
+
+    /**
+     * Get the dimensions of a vector set
+     *
+     * @param string $key The vector set to query.
+     *
+     * @return Redis|int|false The number of dimensions in the vector set or false on failure.
+     */
+    public function vdim(string $key): Redis|int|false;
+
+    /**
+     * Get various bits of information about a vector set
+     *
+     * @param string $key The vector set to query.
+     *
+     * @return Redis|array|false An array of information about the vector set or false on failure.
+     */
+    public function vinfo(string $key): Redis|array|false;
+
+    /**
+     * Check if an element is a member of a vectorset
+     *
+     * @param string $key    The vector set to query.
+     * @param mixed  $member The member to check for.
+     *
+     * @return Redis|bool true if the member exists, false if it does not.
+     */
+    public function vismember(string $key, mixed $member): Redis|bool;
+
+    /**
+     * Get the embeddings for a specific member
+     *
+     * @param string $key   The vector set to query.
+     * @param mixed $member The member to query.
+     * @param bool $raw     If set to `true`, the raw embeddings will be returned
+     *
+     * @return Redis|array|false An array of embeddings for the member or false on failure.
+     */
+    public function vemb(string $key, mixed $member, bool $raw = false): Redis|array|false;
+
+    /**
+     * Get one or more random members from a vector set
+     *
+     * @param string $key   The vector set to query.
+     * @param int $count    The number of random members to return.
+     */
+    public function vrandmember(string $key, int $count = 0): Redis|array|string|false;
+
+    /**
+     * Retreive a lexographical range of elements from a vector set
+     *
+     * @param string $key        The vector set to query.
+     * @param string $min        The minimum element to return.
+     * @param string $max        The maximum element to return.
+     * @param int    $count      An optional maximum number of elements to return.
+     *
+     * @return Redis|array|false An array of elements in the requested range or false on failure.
+     */
+    public function vrange(string $key, string $min, string $max, int $count = -1): Redis|array|false;
+
+    /**
+     * Remove an element from a vector set
+     *
+     * @param string $key     The vector set to remove from.
+     * @param mixed  $member  The member to remove.
+     *
+     * @return Redis|int|faslse 1 if the member was removed, 0 if it was not.
+     */
+    public function vrem(string $key, mixed $member): Redis|int|false;
+
+    /**
+     * Set the attributes of a vector set element
+     *
+     * @param string $key              The vector set to modify.
+     * @param mixed $member            The member to modify.
+     * @param array|string $attributes The attributes to set. This should either
+     *                                 be a json encoded string or an array which
+     *                                 will be json encoded.
+     *
+     * @return Redis|int|false 1 if the attributes were set, 0 if they were not.
+     */
+    public function vsetattr(string $key, mixed $member, array|string $attributes): Redis|int|false;
+
+    /**
+     * Get the attributes of a vector set element
+     *
+     * @param string $key     The vector set to query.
+     * @param mixed  $member  The member to query.
+     * @param bool   $decode  Whether to automatically deserialize any returned json.
+     *
+     * @return Redis|array|false An array of attributes for the member or false on failure.
+     */
+    public function vgetattr(string $key, mixed $member, bool $decode = true): Redis|array|string|false;
+
+    /**
+     * Get any adajcent values for a member of a vector set.
+     *
+     * @param string $key     The vector set to query.
+     * @param mixed  $member  The member to query.
+     * @param bool   $withscores If set to `true`, the scores of the adjacent values will be returned.
+     *
+     * @return Redis|array|false An array of adjacent values and their scores, or false on failure.
+     */
+    public function vlinks(string $key, mixed $member, bool $withscores = false): Redis|array|false;
 
     /**
      * Truncate a STREAM key in various ways.

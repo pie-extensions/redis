@@ -48,6 +48,7 @@ class Redis_Cluster_Test extends Redis_Test {
     public function testReset() { $this->markTestSkipped(); }
     public function testInvalidAuthArgs() { $this->markTestSkipped(); }
     public function testScanErrors() { $this->markTestSkipped(); }
+    public function testConnectDatabaseSelect() { $this->markTestSkipped(); }
 
     /* These 'directed node' commands work differently in RedisCluster */
     public function testConfig() { $this->markTestSkipped(); }
@@ -136,16 +137,89 @@ class Redis_Cluster_Test extends Redis_Test {
         $this->version  = $info['redis_version'] ?? '0.0.0';
         $this->is_keydb = $this->detectKeyDB($info);
         $this->is_valkey = $this->detectValkey($info);
+        $this->valkey_version = $info['valkey_version'] ?? '0.0.0';
+    }
+
+    private function findCliExe() {
+        foreach (['redis-cli', 'valkey-cli'] as $candidate) {
+            $path = trim(shell_exec("command -v $candidate 2>/dev/null"));
+            if (is_executable($path)) {
+                return $path;
+            }
+        }
+
+        return NULL;
+    }
+
+    private function getServerReply($host, $port, $cmd) {
+        $cli = $this->findCliExe();
+        if ( ! $cli) {
+            return '(no redis-cli or valkey-cli found)';
+        }
+
+        $args = [$cli, '-h', $host, '-p', $port];
+
+        $this->getAuthParts($user, $pass);
+
+        if ($user) $args = array_merge($args, ['--user', $user]);
+        if ($pass) $args = array_merge($args, ['-a', $pass]);
+
+        $resp = shell_exec(implode(' ', $args) . ' ' . $cmd . ' 2>/dev/null');
+
+        return is_string($resp) ? trim($resp) : $resp;
+    }
+
+    /* Try to gat a new RedisCluster instance. The strange logic is an attempt
+       to solve a problem where this sometimes fails but only ever on GitHub
+       runners. If we're not on a runner we just get a new instance. Otherwise
+       we allow for two tries to get the instance. */
+    private function getNewInstance() {
+        if (getenv('GITHUB_ACTIONS') === 'true') {
+            try {
+                return new RedisCluster(NULL, self::$seeds, 30, 30, true,
+                                        $this->getAuth());
+            } catch (Exception $ex) {
+                TestSuite::errorMessage("Failed to connect: %s", $ex->getMessage());
+            }
+        }
+
+        return new RedisCluster(NULL, self::$seeds, 30, 30, true, $this->getAuth());
     }
 
     /* Override newInstance as we want a RedisCluster object */
     protected function newInstance() {
         try {
-            return new RedisCluster(NULL, self::$seeds, 30, 30, true, $this->getAuth());
+            return $this->getNewInstance();
         } catch (Exception $ex) {
-            TestSuite::errorMessage("Fatal error: %s\n", $ex->getMessage());
-            TestSuite::errorMessage("Seeds: %s\n", implode(' ', self::$seeds));
-            TestSuite::errorMessage("Seed source: %s\n", self::$seed_source);
+            TestSuite::errorMessage("");
+            TestSuite::errorMessage("Fatal error: %s", $ex->getMessage());
+            TestSuite::errorMessage("Seeds: %s", implode(' ', self::$seeds));
+            TestSuite::errorMessage("Seed source: %s", self::$seed_source);
+            TestSuite::errorMessage("");
+
+            TestSuite::errorMessage("Backtrace:");
+            foreach (debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS) as $i => $frame) {
+                $file = isset($frame['file']) ? basename($frame['file']) : '[internal]';
+                $line = $frame['line'] ?? '?';
+                $func = $frame['function'] ?? 'unknown';
+                TestSuite::errorMessage("  %s:%d [%s]", $file, $line, $func);
+            }
+
+            TestSuite::errorMessage("\nServer responses:");
+
+            /* See if we can shed some light on whether Redis is available */
+            foreach (self::$seeds as $seed) {
+                list($host, $port) = explode(':', $seed);
+
+                $st = microtime(true);
+                $reply = $this->getServerReply($host, $port, 'PING');
+                $et = microtime(true);
+
+                TestSuite::errorMessage("  [%s:%d] PING -> %s (%.4f)", $host,
+                                        $port, var_export($reply, true),
+                                        $et - $st);
+            }
+
             exit(1);
         }
     }
@@ -248,53 +322,6 @@ class Redis_Cluster_Test extends Redis_Test {
 
         /* Kill our own client! */
         $this->assertTrue($this->redis->client($key, 'kill', $addr));
-    }
-
-    public function testGetWithMeta() {
-        $this->redis->del('key');
-        $this->assertFalse($this->redis->get('key'));
-
-        $result = $this->redis->getWithMeta('key');
-        $this->assertIsArray($result, 2);
-        $this->assertArrayKeyEquals($result, 0, false);
-        $this->assertArrayKey($result, 1, function ($metadata) {
-            $this->assertIsArray($metadata);
-            $this->assertArrayKeyEquals($metadata, 'length', -1);
-            return true;
-        });
-
-        $batch = $this->redis->multi()
-            ->set('key', 'value')
-            ->getWithMeta('key')
-            ->exec();
-        $this->assertIsArray($batch, 2);
-        $this->assertArrayKeyEquals($batch, 0, true);
-        $this->assertArrayKey($batch, 1, function ($result) {
-            $this->assertIsArray($result, 2);
-            $this->assertArrayKeyEquals($result, 0, 'value');
-            $this->assertArrayKey($result, 1, function ($metadata) {
-                $this->assertIsArray($metadata);
-                $this->assertArrayKeyEquals($metadata, 'length', strlen('value'));
-                return true;
-            });
-            return true;
-        });
-
-        $serializer = $this->redis->getOption(Redis::OPT_SERIALIZER);
-        $this->redis->setOption(Redis::OPT_SERIALIZER, Redis::SERIALIZER_PHP);
-        $this->assertTrue($this->redis->set('key', false));
-
-        $result = $this->redis->getWithMeta('key');
-        $this->assertIsArray($result, 2);
-        $this->assertArrayKeyEquals($result, 0, false);
-        $this->assertArrayKey($result, 1, function ($metadata) {
-            $this->assertIsArray($metadata);
-            $this->assertArrayKeyEquals($metadata, 'length', strlen(serialize(false)));
-            return true;
-        });
-
-        $this->assertFalse($this->redis->get('key'));
-        $this->redis->setOption(Redis::OPT_SERIALIZER, $serializer);
     }
 
     public function testTime() {
@@ -631,6 +658,8 @@ class Redis_Cluster_Test extends Redis_Test {
                 return "hash";
             case Redis::REDIS_STREAM:
                 return "stream";
+            case Redis::REDIS_VECTORSET:
+                return "vectorset";
             default:
                 return "unknown($key_type)";
         }
