@@ -5,6 +5,10 @@
     },
     "php_ext_name": "redis",
     "source_dir": "src/",
+    "sync": {
+        "prereleases": false,
+        "initial-versions": 3
+    },
     "build": {
         "enabled": true,
         "os": [
@@ -17,13 +21,16 @@
         ],
         "php-version-constraints": [
             {
-                "ext-versions": "*",
-                "php-versions": [
-                    "8.2",
-                    "8.3",
-                    "8.4",
-                    "8.5"
-                ]
+                "ext-versions": "<=6.1.0",
+                "php-versions": ["8.2", "8.3"]
+            },
+            {
+                "ext-versions": ">6.1.0 <=6.2.0",
+                "php-versions": ["8.2", "8.3", "8.4"]
+            },
+            {
+                "ext-versions": ">6.2.0",
+                "php-versions": ["8.2", "8.3", "8.4", "8.5"]
             }
         ],
         "zts": [
