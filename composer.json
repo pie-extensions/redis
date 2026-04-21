@@ -1,16 +1,70 @@
 {
-    "name": "pie-extensions/EXTENSION_NAME",
-    "description": "PIE-compatible mirror of UPSTREAM_OWNER/UPSTREAM_REPO",
+    "name": "pie-extensions/redis",
+    "description": "PIE-compatible mirror of phpredis/phpredis",
     "type": "php-ext",
     "version": "0.0.0",
     "require": {
         "php": ">=8.2"
     },
     "php-ext": {
-        "extension-name": "EXTENSION_NAME",
-        "configure-options": []
+        "extension-name": "redis",
+        "configure-options": [
+            {
+                "name": "enable-redis",
+                "description": "Enable redis support"
+            },
+            {
+                "name": "disable-redis-session",
+                "description": "Disable session support"
+            },
+            {
+                "name": "disable-redis-json",
+                "description": "Disable json serializer support"
+            },
+            {
+                "name": "enable-redis-igbinary",
+                "description": "Enable igbinary serializer support"
+            },
+            {
+                "name": "enable-redis-msgpack",
+                "description": "Enable msgpack serializer support"
+            },
+            {
+                "name": "enable-redis-lzf",
+                "description": "Enable lzf compression support"
+            },
+            {
+                "name": "with-liblzf",
+                "description": "Use system liblzf",
+                "needs-value": true
+            },
+            {
+                "name": "enable-redis-zstd",
+                "description": "Enable Zstd compression support"
+            },
+            {
+                "name": "with-libzstd",
+                "description": "Use system libzstd",
+                "needs-value": true
+            },
+            {
+                "name": "enable-redis-lz4",
+                "description": "Enable lz4 compression support"
+            },
+            {
+                "name": "with-liblz4",
+                "description": "Use system liblz4",
+                "needs-value": true
+            }
+        ],
+        "priority": 60,
+        "build-path": "src",
+        "download-url-method": [
+            "pre-packaged-binary",
+            "composer-default"
+        ]
     },
     "support": {
-        "source": "https://github.com/pie-extensions/EXTENSION_NAME"
+        "source": "https://github.com/pie-extensions/redis"
     }
 }
