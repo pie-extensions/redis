@@ -1,5 +1,5 @@
 /* This is a generated file, edit the .stub.php file instead.
- * Stub hash: 1cc5fe0df8dfa7d95f2bc45c2383132a68629f24 */
+ * Stub hash: 805a66c17b7c9972c73a979bdd67f98f7c1f6c74 */
 
 ZEND_BEGIN_ARG_INFO_EX(arginfo_class_Redis___construct, 0, 0, 0)
 	ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, options, IS_ARRAY, 1, "null")
@@ -323,6 +323,10 @@ ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_Redis_get, 0, 1, IS_MIXED,
 	ZEND_ARG_TYPE_INFO(0, key, IS_STRING, 0)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_TYPE_MASK_EX(arginfo_class_Redis_getWithMeta, 0, 1, Redis, MAY_BE_ARRAY|MAY_BE_FALSE)
+	ZEND_ARG_TYPE_INFO(0, key, IS_STRING, 0)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_Redis_getAuth, 0, 0, IS_MIXED, 0)
 ZEND_END_ARG_INFO()
 
@@ -358,6 +362,11 @@ ZEND_END_ARG_INFO()
 #define arginfo_class_Redis_getPersistentID arginfo_class_Redis_getLastError
 
 #define arginfo_class_Redis_getPort arginfo_class_Redis_getDBNum
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_MASK_EX(arginfo_class_Redis_serverName, 0, 0, MAY_BE_STRING|MAY_BE_FALSE)
+ZEND_END_ARG_INFO()
+
+#define arginfo_class_Redis_serverVersion arginfo_class_Redis_serverName
 
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_TYPE_MASK_EX(arginfo_class_Redis_getRange, 0, 3, Redis, MAY_BE_STRING|MAY_BE_FALSE)
 	ZEND_ARG_TYPE_INFO(0, key, IS_STRING, 0)
@@ -404,9 +413,7 @@ ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_class_Redis_hGet, 0, 2, IS_MIXED
 	ZEND_ARG_TYPE_INFO(0, member, IS_STRING, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_RETURN_OBJ_TYPE_MASK_EX(arginfo_class_Redis_hGetAll, 0, 1, Redis, MAY_BE_ARRAY|MAY_BE_FALSE)
-	ZEND_ARG_TYPE_INFO(0, key, IS_STRING, 0)
-ZEND_END_ARG_INFO()
+#define arginfo_class_Redis_hGetAll arginfo_class_Redis_getWithMeta
 
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_TYPE_MASK_EX(arginfo_class_Redis_hIncrBy, 0, 3, Redis, MAY_BE_LONG|MAY_BE_FALSE)
 	ZEND_ARG_TYPE_INFO(0, key, IS_STRING, 0)
@@ -420,7 +427,7 @@ ZEND_BEGIN_ARG_WITH_RETURN_OBJ_TYPE_MASK_EX(arginfo_class_Redis_hIncrByFloat, 0,
 	ZEND_ARG_TYPE_INFO(0, value, IS_DOUBLE, 0)
 ZEND_END_ARG_INFO()
 
-#define arginfo_class_Redis_hKeys arginfo_class_Redis_hGetAll
+#define arginfo_class_Redis_hKeys arginfo_class_Redis_getWithMeta
 
 #define arginfo_class_Redis_hLen arginfo_class_Redis_expiretime
 
@@ -455,13 +462,26 @@ ZEND_BEGIN_ARG_WITH_RETURN_OBJ_TYPE_MASK_EX(arginfo_class_Redis_hStrLen, 0, 2, R
 	ZEND_ARG_TYPE_INFO(0, field, IS_STRING, 0)
 ZEND_END_ARG_INFO()
 
-#define arginfo_class_Redis_hVals arginfo_class_Redis_hGetAll
+#define arginfo_class_Redis_hVals arginfo_class_Redis_getWithMeta
 
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_TYPE_MASK_EX(arginfo_class_Redis_hscan, 0, 2, Redis, MAY_BE_ARRAY|MAY_BE_BOOL)
 	ZEND_ARG_TYPE_INFO(0, key, IS_STRING, 0)
 	ZEND_ARG_TYPE_MASK(1, iterator, MAY_BE_NULL|MAY_BE_LONG|MAY_BE_STRING, NULL)
 	ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, pattern, IS_STRING, 1, "null")
 	ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, count, IS_LONG, 0, "0")
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_TYPE_MASK_EX(arginfo_class_Redis_expiremember, 0, 3, Redis, MAY_BE_LONG|MAY_BE_FALSE)
+	ZEND_ARG_TYPE_INFO(0, key, IS_STRING, 0)
+	ZEND_ARG_TYPE_INFO(0, field, IS_STRING, 0)
+	ZEND_ARG_TYPE_INFO(0, ttl, IS_LONG, 0)
+	ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, unit, IS_STRING, 1, "null")
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_WITH_RETURN_OBJ_TYPE_MASK_EX(arginfo_class_Redis_expirememberat, 0, 3, Redis, MAY_BE_LONG|MAY_BE_FALSE)
+	ZEND_ARG_TYPE_INFO(0, key, IS_STRING, 0)
+	ZEND_ARG_TYPE_INFO(0, field, IS_STRING, 0)
+	ZEND_ARG_TYPE_INFO(0, timestamp, IS_LONG, 0)
 ZEND_END_ARG_INFO()
 
 #define arginfo_class_Redis_incr arginfo_class_Redis_decr
@@ -734,7 +754,7 @@ ZEND_END_ARG_INFO()
 
 #define arginfo_class_Redis_sInterStore arginfo_class_Redis_del
 
-#define arginfo_class_Redis_sMembers arginfo_class_Redis_hGetAll
+#define arginfo_class_Redis_sMembers arginfo_class_Redis_getWithMeta
 
 #define arginfo_class_Redis_sMisMember arginfo_class_Redis_geohash
 
@@ -1236,6 +1256,7 @@ ZEND_METHOD(Redis, georadiusbymember_ro);
 ZEND_METHOD(Redis, geosearch);
 ZEND_METHOD(Redis, geosearchstore);
 ZEND_METHOD(Redis, get);
+ZEND_METHOD(Redis, getWithMeta);
 ZEND_METHOD(Redis, getAuth);
 ZEND_METHOD(Redis, getBit);
 ZEND_METHOD(Redis, getEx);
@@ -1247,6 +1268,8 @@ ZEND_METHOD(Redis, getMode);
 ZEND_METHOD(Redis, getOption);
 ZEND_METHOD(Redis, getPersistentID);
 ZEND_METHOD(Redis, getPort);
+ZEND_METHOD(Redis, serverName);
+ZEND_METHOD(Redis, serverVersion);
 ZEND_METHOD(Redis, getRange);
 ZEND_METHOD(Redis, lcs);
 ZEND_METHOD(Redis, getReadTimeout);
@@ -1270,6 +1293,8 @@ ZEND_METHOD(Redis, hSetNx);
 ZEND_METHOD(Redis, hStrLen);
 ZEND_METHOD(Redis, hVals);
 ZEND_METHOD(Redis, hscan);
+ZEND_METHOD(Redis, expiremember);
+ZEND_METHOD(Redis, expirememberat);
 ZEND_METHOD(Redis, incr);
 ZEND_METHOD(Redis, incrBy);
 ZEND_METHOD(Redis, incrByFloat);
@@ -1492,6 +1517,7 @@ static const zend_function_entry class_Redis_methods[] = {
 	ZEND_ME(Redis, geosearch, arginfo_class_Redis_geosearch, ZEND_ACC_PUBLIC)
 	ZEND_ME(Redis, geosearchstore, arginfo_class_Redis_geosearchstore, ZEND_ACC_PUBLIC)
 	ZEND_ME(Redis, get, arginfo_class_Redis_get, ZEND_ACC_PUBLIC)
+	ZEND_ME(Redis, getWithMeta, arginfo_class_Redis_getWithMeta, ZEND_ACC_PUBLIC)
 	ZEND_ME(Redis, getAuth, arginfo_class_Redis_getAuth, ZEND_ACC_PUBLIC)
 	ZEND_ME(Redis, getBit, arginfo_class_Redis_getBit, ZEND_ACC_PUBLIC)
 	ZEND_ME(Redis, getEx, arginfo_class_Redis_getEx, ZEND_ACC_PUBLIC)
@@ -1503,6 +1529,8 @@ static const zend_function_entry class_Redis_methods[] = {
 	ZEND_ME(Redis, getOption, arginfo_class_Redis_getOption, ZEND_ACC_PUBLIC)
 	ZEND_ME(Redis, getPersistentID, arginfo_class_Redis_getPersistentID, ZEND_ACC_PUBLIC)
 	ZEND_ME(Redis, getPort, arginfo_class_Redis_getPort, ZEND_ACC_PUBLIC)
+	ZEND_ME(Redis, serverName, arginfo_class_Redis_serverName, ZEND_ACC_PUBLIC)
+	ZEND_ME(Redis, serverVersion, arginfo_class_Redis_serverVersion, ZEND_ACC_PUBLIC)
 	ZEND_ME(Redis, getRange, arginfo_class_Redis_getRange, ZEND_ACC_PUBLIC)
 	ZEND_ME(Redis, lcs, arginfo_class_Redis_lcs, ZEND_ACC_PUBLIC)
 	ZEND_ME(Redis, getReadTimeout, arginfo_class_Redis_getReadTimeout, ZEND_ACC_PUBLIC)
@@ -1526,6 +1554,8 @@ static const zend_function_entry class_Redis_methods[] = {
 	ZEND_ME(Redis, hStrLen, arginfo_class_Redis_hStrLen, ZEND_ACC_PUBLIC)
 	ZEND_ME(Redis, hVals, arginfo_class_Redis_hVals, ZEND_ACC_PUBLIC)
 	ZEND_ME(Redis, hscan, arginfo_class_Redis_hscan, ZEND_ACC_PUBLIC)
+	ZEND_ME(Redis, expiremember, arginfo_class_Redis_expiremember, ZEND_ACC_PUBLIC)
+	ZEND_ME(Redis, expirememberat, arginfo_class_Redis_expirememberat, ZEND_ACC_PUBLIC)
 	ZEND_ME(Redis, incr, arginfo_class_Redis_incr, ZEND_ACC_PUBLIC)
 	ZEND_ME(Redis, incrBy, arginfo_class_Redis_incrBy, ZEND_ACC_PUBLIC)
 	ZEND_ME(Redis, incrByFloat, arginfo_class_Redis_incrByFloat, ZEND_ACC_PUBLIC)
@@ -1800,6 +1830,12 @@ static zend_class_entry *register_class_Redis(void)
 	zend_declare_class_constant_ex(class_entry, const_OPT_NULL_MULTIBULK_AS_NULL_name, &const_OPT_NULL_MULTIBULK_AS_NULL_value, ZEND_ACC_PUBLIC, NULL);
 	zend_string_release(const_OPT_NULL_MULTIBULK_AS_NULL_name);
 
+	zval const_OPT_PACK_IGNORE_NUMBERS_value;
+	ZVAL_LONG(&const_OPT_PACK_IGNORE_NUMBERS_value, REDIS_OPT_PACK_IGNORE_NUMBERS);
+	zend_string *const_OPT_PACK_IGNORE_NUMBERS_name = zend_string_init_interned("OPT_PACK_IGNORE_NUMBERS", sizeof("OPT_PACK_IGNORE_NUMBERS") - 1, 1);
+	zend_declare_class_constant_ex(class_entry, const_OPT_PACK_IGNORE_NUMBERS_name, &const_OPT_PACK_IGNORE_NUMBERS_value, ZEND_ACC_PUBLIC, NULL);
+	zend_string_release(const_OPT_PACK_IGNORE_NUMBERS_name);
+
 	zval const_SERIALIZER_NONE_value;
 	ZVAL_LONG(&const_SERIALIZER_NONE_value, REDIS_SERIALIZER_NONE);
 	zend_string *const_SERIALIZER_NONE_name = zend_string_init_interned("SERIALIZER_NONE", sizeof("SERIALIZER_NONE") - 1, 1);
@@ -2027,12 +2063,16 @@ static zend_class_entry *register_class_Redis(void)
 	zend_string *const_OPT_BACKOFF_CAP_name = zend_string_init_interned("OPT_BACKOFF_CAP", sizeof("OPT_BACKOFF_CAP") - 1, 1);
 	zend_declare_class_constant_ex(class_entry, const_OPT_BACKOFF_CAP_name, &const_OPT_BACKOFF_CAP_value, ZEND_ACC_PUBLIC, NULL);
 	zend_string_release(const_OPT_BACKOFF_CAP_name);
-#if (PHP_VERSION_ID >= 80200)
+#if (PHP_VERSION_ID >= 80000)
 
 
-	zend_add_parameter_attribute(zend_hash_str_find_ptr(&class_entry->function_table, "auth", sizeof("auth") - 1), 0, ZSTR_KNOWN(ZEND_STR_SENSITIVEPARAMETER), 0);
+	zend_string *attribute_name_SensitiveParameter_func_auth_arg0_0 = zend_string_init_interned("SensitiveParameter", sizeof("SensitiveParameter") - 1, 1);
+	zend_add_parameter_attribute(zend_hash_str_find_ptr(&class_entry->function_table, "auth", sizeof("auth") - 1), 0, attribute_name_SensitiveParameter_func_auth_arg0_0, 0);
+	zend_string_release(attribute_name_SensitiveParameter_func_auth_arg0_0);
 
-	zend_add_parameter_attribute(zend_hash_str_find_ptr(&class_entry->function_table, "migrate", sizeof("migrate") - 1), 7, ZSTR_KNOWN(ZEND_STR_SENSITIVEPARAMETER), 0);
+	zend_string *attribute_name_SensitiveParameter_func_migrate_arg7_0 = zend_string_init_interned("SensitiveParameter", sizeof("SensitiveParameter") - 1, 1);
+	zend_add_parameter_attribute(zend_hash_str_find_ptr(&class_entry->function_table, "migrate", sizeof("migrate") - 1), 7, attribute_name_SensitiveParameter_func_migrate_arg7_0, 0);
+	zend_string_release(attribute_name_SensitiveParameter_func_migrate_arg7_0);
 #endif
 
 	return class_entry;

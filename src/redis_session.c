@@ -147,6 +147,10 @@ static int session_gc_maxlifetime(void) {
 /* Retrieve redis.session.compression from php.ini */
 static int session_compression_type(void) {
     const char *compression = INI_STR("redis.session.compression");
+    if(compression == NULL || *compression == '\0' || strncasecmp(compression, "none", sizeof("none") - 1) == 0) {
+        return REDIS_COMPRESSION_NONE;
+    }
+
 #ifdef HAVE_REDIS_LZF
     if(strncasecmp(compression, "lzf", sizeof("lzf") - 1) == 0) {
         return REDIS_COMPRESSION_LZF;
@@ -162,9 +166,6 @@ static int session_compression_type(void) {
         return REDIS_COMPRESSION_LZ4;
     }
 #endif
-    if(*compression == '\0' || strncasecmp(compression, "none", sizeof("none") - 1) == 0) {
-        return REDIS_COMPRESSION_NONE;
-    }
 
     // E_NOTICE when outside of valid values
     php_error_docref(NULL, E_NOTICE, "redis.session.compression is outside of valid values, disabling");
@@ -336,7 +337,7 @@ static int lock_acquire(RedisSock *redis_sock, redis_session_lock_status *lock_s
     return lock_status->is_locked ? SUCCESS : FAILURE;
 }
 
-#define IS_LOCK_SECRET(reply, len, secret) (len == ZSTR_LEN(secret) && !strncmp(reply, ZSTR_VAL(secret), len))
+#define IS_LOCK_SECRET(reply, len, secret) (len == ZSTR_LEN(secret) && !redis_strncmp(reply, ZSTR_VAL(secret), len))
 static int write_allowed(RedisSock *redis_sock, redis_session_lock_status *lock_status)
 {
     if (!INI_INT("redis.session.locking_enabled")) {
@@ -444,7 +445,7 @@ PS_OPEN_FUNC(redis)
             zend_string *user = NULL, *pass = NULL;
 
             /* translate unix: into file: */
-            if (!strncmp(save_path+i, "unix:", sizeof("unix:")-1)) {
+            if (!redis_strncmp(save_path+i, ZEND_STRL("unix:"))) {
                 int len = j-i;
                 char *path = estrndup(save_path+i, len);
                 memcpy(path, "file:", sizeof("file:")-1);

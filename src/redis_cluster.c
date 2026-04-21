@@ -275,11 +275,33 @@ PHP_METHOD(RedisCluster, close) {
     RETURN_TRUE;
 }
 
-/* {{{ proto string RedisCluster::get(string key) */
-PHP_METHOD(RedisCluster, get) {
+static void
+cluster_get_passthru(INTERNAL_FUNCTION_PARAMETERS)
+{
     CLUSTER_PROCESS_KW_CMD("GET", redis_key_cmd, cluster_bulk_resp, 1);
 }
+
+/* {{{ proto string RedisCluster::get(string key) */
+PHP_METHOD(RedisCluster, get) {
+    cluster_get_passthru(INTERNAL_FUNCTION_PARAM_PASSTHRU);
+}
 /* }}} */
+
+/* {{{ proto string RedisCluster::getdel(string key) */
+PHP_METHOD(RedisCluster, getdel) {
+    CLUSTER_PROCESS_KW_CMD("GETDEL", redis_key_cmd, cluster_bulk_resp, 1);
+}
+/* }}} */
+
+/* {{{ proto array|false RedisCluster::getWithMeta(string key) */
+PHP_METHOD(RedisCluster, getWithMeta) {
+    redisCluster *c = GET_CONTEXT();
+    REDIS_ENABLE_FLAG(c->flags, PHPREDIS_WITH_METADATA);
+    cluster_get_passthru(INTERNAL_FUNCTION_PARAM_PASSTHRU);
+    REDIS_DISABLE_FLAG(c->flags, PHPREDIS_WITH_METADATA);
+}
+/* }}} */
+
 
 /* {{{ proto bool RedisCluster::set(string key, string value) */
 PHP_METHOD(RedisCluster, set) {
@@ -1302,6 +1324,14 @@ PHP_METHOD(RedisCluster, getbit) {
     CLUSTER_PROCESS_KW_CMD("GETBIT", redis_key_long_cmd, cluster_long_resp, 1);
 }
 /* }}} */
+
+PHP_METHOD(RedisCluster, expiremember) {
+    CLUSTER_PROCESS_CMD(expiremember, cluster_long_resp, 0);
+}
+
+PHP_METHOD(RedisCluster, expirememberat) {
+    CLUSTER_PROCESS_CMD(expiremember, cluster_long_resp, 0);
+}
 
 /* {{{ proto long RedisCluster::setbit(string key, long offset, bool onoff) */
 PHP_METHOD(RedisCluster, setbit) {

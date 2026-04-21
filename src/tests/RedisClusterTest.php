@@ -27,6 +27,8 @@ class Redis_Cluster_Test extends Redis_Test {
     private static array  $seed_messages = [];
     private static string $seed_source = '';
 
+    public function testServerInfo() { $this->markTestSkipped(); }
+    public function testServerInfoOldRedis() { $this->markTestSkipped(); }
 
     /* Tests we'll skip all together in the context of RedisCluster.  The
      * RedisCluster class doesn't implement specialized (non-redis) commands
@@ -133,6 +135,7 @@ class Redis_Cluster_Test extends Redis_Test {
         $info           = $this->redis->info(uniqid());
         $this->version  = $info['redis_version'] ?? '0.0.0';
         $this->is_keydb = $this->detectKeyDB($info);
+        $this->is_valkey = $this->detectValkey($info);
     }
 
     /* Override newInstance as we want a RedisCluster object */
@@ -245,6 +248,53 @@ class Redis_Cluster_Test extends Redis_Test {
 
         /* Kill our own client! */
         $this->assertTrue($this->redis->client($key, 'kill', $addr));
+    }
+
+    public function testGetWithMeta() {
+        $this->redis->del('key');
+        $this->assertFalse($this->redis->get('key'));
+
+        $result = $this->redis->getWithMeta('key');
+        $this->assertIsArray($result, 2);
+        $this->assertArrayKeyEquals($result, 0, false);
+        $this->assertArrayKey($result, 1, function ($metadata) {
+            $this->assertIsArray($metadata);
+            $this->assertArrayKeyEquals($metadata, 'length', -1);
+            return true;
+        });
+
+        $batch = $this->redis->multi()
+            ->set('key', 'value')
+            ->getWithMeta('key')
+            ->exec();
+        $this->assertIsArray($batch, 2);
+        $this->assertArrayKeyEquals($batch, 0, true);
+        $this->assertArrayKey($batch, 1, function ($result) {
+            $this->assertIsArray($result, 2);
+            $this->assertArrayKeyEquals($result, 0, 'value');
+            $this->assertArrayKey($result, 1, function ($metadata) {
+                $this->assertIsArray($metadata);
+                $this->assertArrayKeyEquals($metadata, 'length', strlen('value'));
+                return true;
+            });
+            return true;
+        });
+
+        $serializer = $this->redis->getOption(Redis::OPT_SERIALIZER);
+        $this->redis->setOption(Redis::OPT_SERIALIZER, Redis::SERIALIZER_PHP);
+        $this->assertTrue($this->redis->set('key', false));
+
+        $result = $this->redis->getWithMeta('key');
+        $this->assertIsArray($result, 2);
+        $this->assertArrayKeyEquals($result, 0, false);
+        $this->assertArrayKey($result, 1, function ($metadata) {
+            $this->assertIsArray($metadata);
+            $this->assertArrayKeyEquals($metadata, 'length', strlen(serialize(false)));
+            return true;
+        });
+
+        $this->assertFalse($this->redis->get('key'));
+        $this->redis->setOption(Redis::OPT_SERIALIZER, $serializer);
     }
 
     public function testTime() {

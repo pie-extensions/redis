@@ -91,20 +91,21 @@ typedef enum _PUBSUB_TYPE {
 #define REDIS_SUBS_BUCKETS   3
 
 /* options */
-#define REDIS_OPT_SERIALIZER         1
-#define REDIS_OPT_PREFIX             2
-#define REDIS_OPT_READ_TIMEOUT       3
-#define REDIS_OPT_SCAN               4
-#define REDIS_OPT_FAILOVER           5
-#define REDIS_OPT_TCP_KEEPALIVE      6
-#define REDIS_OPT_COMPRESSION        7
-#define REDIS_OPT_REPLY_LITERAL      8
-#define REDIS_OPT_COMPRESSION_LEVEL  9
-#define REDIS_OPT_NULL_MBULK_AS_NULL 10
-#define REDIS_OPT_MAX_RETRIES        11
-#define REDIS_OPT_BACKOFF_ALGORITHM  12
-#define REDIS_OPT_BACKOFF_BASE       13
-#define REDIS_OPT_BACKOFF_CAP        14
+#define REDIS_OPT_SERIALIZER          1
+#define REDIS_OPT_PREFIX              2
+#define REDIS_OPT_READ_TIMEOUT        3
+#define REDIS_OPT_SCAN                4
+#define REDIS_OPT_FAILOVER            5
+#define REDIS_OPT_TCP_KEEPALIVE       6
+#define REDIS_OPT_COMPRESSION         7
+#define REDIS_OPT_REPLY_LITERAL       8
+#define REDIS_OPT_COMPRESSION_LEVEL   9
+#define REDIS_OPT_NULL_MBULK_AS_NULL  10
+#define REDIS_OPT_MAX_RETRIES         11
+#define REDIS_OPT_BACKOFF_ALGORITHM   12
+#define REDIS_OPT_BACKOFF_BASE        13
+#define REDIS_OPT_BACKOFF_CAP         14
+#define REDIS_OPT_PACK_IGNORE_NUMBERS 15
 
 /* cluster options */
 #define REDIS_FAILOVER_NONE              0
@@ -151,6 +152,7 @@ typedef enum {
 #define PIPELINE 2
 
 #define PHPREDIS_DEBUG_LOGGING 0
+#define PHPREDIS_WITH_METADATA 1
 
 #if PHP_VERSION_ID < 80000
 #define Z_PARAM_ARRAY_HT_OR_NULL(dest) \
@@ -177,27 +179,14 @@ typedef enum {
 #define IS_PIPELINE(redis_sock) (redis_sock->mode & PIPELINE)
 
 #define PIPELINE_ENQUEUE_COMMAND(cmd, cmd_len) do { \
-    if (redis_sock->pipeline_cmd == NULL) { \
-        redis_sock->pipeline_cmd = zend_string_init(cmd, cmd_len, 0); \
-    } else { \
-        size_t pipeline_len = ZSTR_LEN(redis_sock->pipeline_cmd); \
-        redis_sock->pipeline_cmd = zend_string_realloc(redis_sock->pipeline_cmd, pipeline_len + cmd_len, 0); \
-        memcpy(&ZSTR_VAL(redis_sock->pipeline_cmd)[pipeline_len], cmd, cmd_len); \
-    } \
+    smart_string_appendl(&redis_sock->pipeline_cmd, cmd, cmd_len); \
 } while (0)
 
 #define REDIS_SAVE_CALLBACK(callback, closure_context) do { \
-    fold_item *fi = malloc(sizeof(fold_item)); \
+    fold_item *fi = redis_add_reply_callback(redis_sock); \
     fi->fun = callback; \
+    fi->flags = redis_sock->flags; \
     fi->ctx = closure_context; \
-    fi->next = NULL; \
-    if (redis_sock->current) { \
-        redis_sock->current->next = fi; \
-    } \
-    redis_sock->current = fi; \
-    if (NULL == redis_sock->head) { \
-        redis_sock->head = redis_sock->current; \
-    } \
 } while (0)
 
 #define REDIS_PROCESS_REQUEST(redis_sock, cmd, cmd_len) \
@@ -262,6 +251,12 @@ typedef enum {
 #define REDIS_STRICMP_STATIC(s, len, sstr) \
     (len == sizeof(sstr) - 1 && !strncasecmp(s, sstr, len))
 
+/* On some versions of glibc strncmp is a macro. This wrapper allows us to
+   use it in combination with ZEND_STRL in those cases. */
+static inline int redis_strncmp(const char *s1, const char *s2, size_t n) {
+    return strncmp(s1, s2, n);
+}
+
 /* Test if a zval is a string and (case insensitive) matches a static string */
 #define ZVAL_STRICMP_STATIC(zv, sstr) \
     REDIS_STRICMP_STATIC(Z_STRVAL_P(zv), Z_STRLEN_P(zv), sstr)
@@ -272,6 +267,9 @@ typedef enum {
 
 #define REDIS_ENABLE_MODE(redis_sock, m) (redis_sock->mode |= m)
 #define REDIS_DISABLE_MODE(redis_sock, m) (redis_sock->mode &= ~m)
+
+#define REDIS_ENABLE_FLAG(redis_sock, f) (redis_sock->flags |= f)
+#define REDIS_DISABLE_FLAG(redis_sock, f) (redis_sock->flags &= ~f)
 
 /* HOST_NAME_MAX doesn't exist everywhere */
 #ifndef HOST_NAME_MAX
@@ -288,6 +286,11 @@ typedef enum {
 #define RESP_MULTI_CMD         "*1\r\n$5\r\nMULTI\r\n"
 #define RESP_EXEC_CMD          "*1\r\n$4\r\nEXEC\r\n"
 #define RESP_DISCARD_CMD       "*1\r\n$7\r\nDISCARD\r\n"
+
+typedef struct RedisHello {
+    zend_string *server;
+    zend_string *version;
+} RedisHello;
 
 /* {{{ struct RedisSock */
 typedef struct {
@@ -308,20 +311,19 @@ typedef struct {
     zend_string         *persistent_id;
     HashTable           *subs[REDIS_SUBS_BUCKETS];
     redis_serializer    serializer;
+    zend_bool           pack_ignore_numbers;
     int                 compression;
     int                 compression_level;
     long                dbNumber;
-
     zend_string         *prefix;
-
+    struct RedisHello   hello;
     short               mode;
-    struct fold_item    *head;
-    struct fold_item    *current;
-
-    zend_string         *pipeline_cmd;
+    struct fold_item    *reply_callback;
+    size_t              reply_callback_count;
+    size_t              reply_callback_capacity;
+    smart_string        pipeline_cmd;
 
     zend_string         *err;
-
     int                 scan;
 
     int                 readonly;
@@ -331,6 +333,7 @@ typedef struct {
     int                 sentinel;
     size_t              txBytes;
     size_t              rxBytes;
+    uint8_t             flags;
 } RedisSock;
 /* }}} */
 
@@ -340,8 +343,8 @@ typedef int (*FailableResultCallback)(INTERNAL_FUNCTION_PARAMETERS, RedisSock*, 
 
 typedef struct fold_item {
     FailableResultCallback fun;
+    uint8_t flags;
     void *ctx;
-    struct fold_item *next;
 } fold_item;
 
 typedef struct {

@@ -152,6 +152,32 @@ class Redis {
     public const OPT_NULL_MULTIBULK_AS_NULL = UNKNOWN;
 
     /**
+     * @var int
+     * @cvalue REDIS_OPT_PACK_IGNORE_NUMBERS
+     *
+     * When enabled, this option tells PhpRedis to ignore purely numeric values
+     * when packing and unpacking data. This does not include numeric strings.
+     * If you want numeric strings to be ignored, typecast them to an int or float.
+     *
+     * The primary purpose of this option is to make it more ergonomic when
+     * setting keys that will later be incremented or decremented.
+     *
+     * Note: This option incurs a small performance penalty when reading data
+     * because we have to see if the data is a string representation of an int
+     * or float.
+     *
+     * @example
+     * $redis->setOption(Redis::OPT_SERIALIZER, Redis::SERIALIZER_IGBINARY);
+     * $redis->setOption(Redis::OPT_PACK_IGNORE_NUMBERS, true);
+     *
+     * $redis->set('answer', 32);
+     *
+     * var_dump($redis->incrBy('answer', 10));  // int(42)
+     * var_dump($redis->get('answer'));         // int(42)
+     */
+    public const OPT_PACK_IGNORE_NUMBERS = UNKNOWN;
+
+    /**
      *
      * @var int
      * @cvalue REDIS_SERIALIZER_NONE
@@ -1442,6 +1468,16 @@ class Redis {
     public function get(string $key): mixed;
 
     /**
+     * Retrieve a value and metadata of key.
+     *
+     * @param  string  $key The key to query
+     * @return Redis|array|false
+     *
+     * @example $redis->getWithMeta('foo');
+     */
+    public function getWithMeta(string $key): Redis|array|false;
+
+    /**
      * Get the authentication information on the connection, if any.
      *
      * @return mixed The authentication information used to authenticate the connection.
@@ -1553,6 +1589,20 @@ class Redis {
      * @return int The port.
      */
     public function getPort(): int;
+
+    /**
+     * Get the server name as reported by the `HELLO` response.
+     *
+     * @return string|false
+     */
+    public function serverName(): string|false;
+
+    /**
+     * Get the server version as reported by the `HELLO` response.
+     *
+     * @return string|false
+     */
+    public function serverVersion(): string|false;
 
     /**
      * Retrieve a substring of a string by index.
@@ -1874,7 +1924,7 @@ class Redis {
      * @param int    $iterator  The scan iterator, which should be initialized to NULL before the first call.
      *                          This value will be updated after every call to hscan, until it reaches zero
      *                          meaning the scan is complete.
-     * @param string $pattern   An optional glob-style pattern to filter fields with.
+     * @param string|null $pattern An optional glob-style pattern to filter fields with.
      * @param int    $count     An optional hint to Redis about how many fields and values to return per HSCAN.
      *
      * @return Redis|array|bool An array with a subset of fields and values.
@@ -1902,6 +1952,28 @@ class Redis {
      * } while ($it != 0);
      */
     public function hscan(string $key, null|int|string &$iterator, ?string $pattern = null, int $count = 0): Redis|array|bool;
+
+    /**
+     * Set an expiration on a key member (KeyDB only).
+     *
+     * @see https://docs.keydb.dev/docs/commands/#expiremember
+     *
+     * @param string $key The key to expire
+     * @param string $field The field to expire
+     * @param string|null $unit The unit of the ttl (s, or ms).
+     */
+    public function expiremember(string $key, string $field, int $ttl, ?string $unit = null): Redis|int|false;
+
+    /**
+     * Set an expiration on a key membert to a specific unix timestamp (KeyDB only).
+     *
+     * @see https://docs.keydb.dev/docs/commands/#expirememberat
+     *
+     * @param string $key The key to expire
+     * @param string $field The field to expire
+     * @param int $timestamp The unix timestamp to expire at.
+     */
+    public function expirememberat(string $key, string $field, int $timestamp): Redis|int|false;
 
     /**
      * Increment a key's value, optionally by a specific amount.
@@ -1973,7 +2045,10 @@ class Redis {
      */
     public function isConnected(): bool;
 
-    /** @return Redis|list<string>|false */
+    /**
+     * @param string $pattern
+     * @return Redis|list<string>|false
+     */
     public function keys(string $pattern);
 
     /**
@@ -2898,7 +2973,7 @@ class Redis {
      *                         updated to a new number, until finally Redis will set the value to
      *                         zero, indicating that the scan is complete.
      *
-     * @param string $pattern  An optional glob-style pattern for matching key names.  If passed as
+     * @param string|null $pattern An optional glob-style pattern for matching key names.  If passed as
      *                         NULL, it is the equivalent of sending '*' (match every key).
      *
      * @param int    $count    A hint to redis that tells it how many keys to return in a single
@@ -3289,7 +3364,7 @@ class Redis {
      *                          PhpRedis will update with the value returned from Redis after each
      *                          subsequent call to SSCAN.  Once this cursor is zero you know all
      *                          members have been traversed.
-     * @param string $pattern   An optional glob style pattern to match against, so Redis only
+     * @param string|null $pattern An optional glob style pattern to match against, so Redis only
      *                          returns the subset of members matching this pattern.
      * @param int    $count     A hint to Redis as to how many members it should scan in one command
      *                          before returning members for that iteration.
@@ -4576,7 +4651,7 @@ class Redis {
      * @param int    $iterator   A reference to an iterator that should be initialized to NULL initially, that
      *                           will be updated after each subsequent call to ZSCAN.  Once the iterator
      *                           has returned to zero the scan is complete
-     * @param string $pattern    An optional glob-style pattern that limits which members are returned during
+     * @param string|null $pattern An optional glob-style pattern that limits which members are returned during
      *                           the scanning process.
      * @param int    $count      A hint for Redis that tells it how many elements it should test before returning
      *                           from the call.  The higher the more work Redis may do in any one given call to

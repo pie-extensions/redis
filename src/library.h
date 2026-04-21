@@ -29,6 +29,9 @@
     /* use RedisException when ValueError not available */
     #define REDIS_VALUE_EXCEPTION(m) REDIS_THROW_EXCEPTION(m, 0)
     #define RETURN_THROWS() RETURN_FALSE
+    /* ZVAL_STRINGL_FAST and RETVAL_STRINGL_FAST macros are supported since PHP 8 */
+    #define ZVAL_STRINGL_FAST(z, s, l) ZVAL_STRINGL(z, s, l)
+    #define RETVAL_STRINGL_FAST(s, l) RETVAL_STRINGL(s, l)
 #else
     #define redis_hash_fetch_ops(zstr) php_hash_fetch_ops(zstr)
 
@@ -37,15 +40,18 @@
 
 
 void redis_register_persistent_resource(zend_string *id, void *ptr, int le_id);
-void free_reply_callbacks(RedisSock *redis_sock);
+fold_item* redis_add_reply_callback(RedisSock *redis_sock);
+void redis_free_reply_callbacks(RedisSock *redis_sock);
 
 PHP_REDIS_API int redis_extract_auth_info(zval *ztest, zend_string **user, zend_string **pass);
+PHP_REDIS_API void redis_with_metadata(zval *zdst, zval *zsrc, zend_long length);
 
 int redis_cmd_init_sstr(smart_string *str, int num_args, char *keyword, int keyword_len);
 int redis_cmd_append_sstr(smart_string *str, char *append, int append_len);
 int redis_cmd_append_sstr_int(smart_string *str, int append);
 int redis_cmd_append_sstr_long(smart_string *str, long append);
 int redis_cmd_append_sstr_i64(smart_string *str, int64_t append);
+int redis_cmd_append_sstr_u64(smart_string *str, uint64_t append);
 int redis_cmd_append_sstr_dbl(smart_string *str, double value);
 int redis_cmd_append_sstr_zstr(smart_string *str, zend_string *zstr);
 int redis_cmd_append_sstr_zval(smart_string *str, zval *z, RedisSock *redis_sock);
@@ -204,6 +210,9 @@ PHP_REDIS_API int redis_client_response(INTERNAL_FUNCTION_PARAMETERS, RedisSock 
 PHP_REDIS_API int redis_function_response(INTERNAL_FUNCTION_PARAMETERS, RedisSock *redis_sock, zval *z_tab, void *ctx);
 PHP_REDIS_API int redis_command_response(INTERNAL_FUNCTION_PARAMETERS, RedisSock *redis_sock, zval *z_tab, void *ctx);
 PHP_REDIS_API int redis_select_response(INTERNAL_FUNCTION_PARAMETERS, RedisSock *redis_sock, zval *z_tab, void *ctx);
+
+PHP_REDIS_API int redis_hello_server_response(INTERNAL_FUNCTION_PARAMETERS, RedisSock *redis_sock, zval *z_tab, void *ctx);
+PHP_REDIS_API int redis_hello_version_response(INTERNAL_FUNCTION_PARAMETERS, RedisSock *redis_sock, zval *z_tab, void *ctx);
 
 /* Helper methods to get configuration values from a HashTable. */
 

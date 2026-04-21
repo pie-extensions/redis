@@ -391,6 +391,16 @@ class RedisCluster {
     public function get(string $key): mixed;
 
     /**
+     * @see Redis::getdel
+     */
+    public function getdel(string $key): mixed;
+
+    /**
+     * @see Redis::getWithMeta
+     */
+    public function getWithMeta(string $key): RedisCluster|array|false;
+
+    /**
      * @see Redis::getEx
      */
     public function getex(string $key, array $options = []): RedisCluster|string|false;
@@ -494,6 +504,16 @@ class RedisCluster {
      * @see Redis::hscan
      */
     public function hscan(string $key, null|int|string &$iterator, ?string $pattern = null, int $count = 0): array|bool;
+
+    /**
+     * @see Redis::expiremember
+     */
+    public function expiremember(string $key, string $field, int $ttl, ?string $unit = null): Redis|int|false;
+
+    /**
+     * @see Redis::expirememberat
+     */
+    public function expirememberat(string $key, string $field, int $timestamp): Redis|int|false;
 
     /**
      * @see https://redis.io/commands/hrandfield

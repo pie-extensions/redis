@@ -22,8 +22,10 @@ $obj_cluster = new RedisCluster(NULL, ["host:7000", "host:7001"], 1.5, 1.5, true
 // Connect with cluster using password.
 $obj_cluster = new RedisCluster(NULL, ["host:7000", "host:7001"], 1.5, 1.5, true, "password");
 
-// Connect with cluster using SSL/TLS
-// last argument is an array with [SSL context](https://www.php.net/manual/en/context.ssl.php) options
+// Connect with cluster using TLS
+// last argument is an optional array with [SSL context options](https://www.php.net/manual/en/context.ssl.php) (TLS options)
+// If value is array (even empty), it will connect via TLS.  If not, it will connect without TLS.
+// Note: If the seeds start with "ssl:// or tls://", it will connect to the seeds via TLS, but the subsequent connections will connect without TLS if this value is null.  So, if your nodes require TLS, this value must be an array, even if empty.
 $obj_cluster = new RedisCluster(NULL, ["host:7000", "host:7001"], 1.5, 1.5, true, NULL, ["verify_peer" => false]);
 ```
 

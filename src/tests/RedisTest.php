@@ -67,11 +67,16 @@ class Redis_Test extends TestSuite {
                isset($info['mvcc_depth']);
     }
 
+    protected function detectValkey(array $info) {
+        return isset($info['server_name']) && $info['server_name'] === 'valkey';
+    }
+
     public function setUp() {
         $this->redis = $this->newInstance();
         $info = $this->redis->info();
         $this->version = (isset($info['redis_version'])?$info['redis_version']:'0.0.0');
         $this->is_keydb = $this->detectKeyDB($info);
+        $this->is_valkey = $this->detectValKey($info);
     }
 
     protected function minVersionCheck($version) {
@@ -629,11 +634,31 @@ class Redis_Test extends TestSuite {
         $this->assertEquals('bar', $this->redis->set('foo', 'baz', ['GET']));
     }
 
+    /* Test Valkey >= 8.1 IFEQ SET option */
+    public function testValkeyIfEq() {
+        if ( ! $this->is_valkey || ! $this->minVersionCheck('8.1.0'))
+            $this->markTestSkipped();
+
+        $this->redis->del('foo');
+        $this->assertTrue($this->redis->set('foo', 'bar'));
+        $this->assertTrue($this->redis->set('foo', 'bar2', ['IFEQ' => 'bar']));
+        $this->assertFalse($this->redis->set('foo', 'bar4', ['IFEQ' => 'bar3']));
+
+        $this->assertEquals('bar2', $this->redis->set('foo', 'bar3', ['IFEQ' => 'bar2', 'GET']));
+    }
+
     public function testGetSet() {
         $this->redis->del('key');
         $this->assertFalse($this->redis->getSet('key', '42'));
         $this->assertEquals('42', $this->redis->getSet('key', '123'));
         $this->assertEquals('123', $this->redis->getSet('key', '123'));
+    }
+
+    public function testGetDel() {
+        $this->redis->del('key');
+        $this->assertTrue($this->redis->set('key', 'iexist'));
+        $this->assertEquals('iexist', $this->redis->getDel('key'));
+        $this->assertEquals(0, $this->redis->exists('key'));
     }
 
     public function testRandomKey() {
@@ -714,6 +739,22 @@ class Redis_Test extends TestSuite {
 
         $this->assertEquals(array_values($kvals),
                             $this->redis->mget(array_keys($kvals)));
+    }
+
+    public function testExpireMember() {
+        if ( ! $this->is_keydb)
+            $this->markTestSkipped();
+
+        $this->redis->del('h');
+        $this->redis->hmset('h', ['f1' => 'v1', 'f2' => 'v2', 'f3' => 'v3', 'f4' => 'v4']);
+
+        $this->assertEquals(1, $this->redis->expiremember('h', 'f1', 1));
+        $this->assertEquals(1, $this->redis->expiremember('h', 'f2', 1000, 'ms'));
+        $this->assertEquals(1, $this->redis->expiremember('h', 'f3', 1000,  null));
+        $this->assertEquals(0, $this->redis->expiremember('h', 'nk', 10));
+
+        $this->assertEquals(1, $this->redis->expirememberat('h', 'f4', time() + 1));
+        $this->assertEquals(0, $this->redis->expirememberat('h', 'nk', time() + 1));
     }
 
     public function testExpire() {
@@ -2416,6 +2457,55 @@ class Redis_Test extends TestSuite {
         $this->assertTrue(is_array($res) && isset($res['redis_version']) && isset($res['used_memory']));
     }
 
+    private function execHello() {
+        $zipped = [];
+
+        $result = $this->redis->rawCommand('HELLO');
+        if ( ! is_array($result) || count($result) % 2 != 0)
+            return false;
+
+        for ($i = 0; $i < count($result); $i += 2) {
+            $zipped[$result[$i]] = $result[$i + 1];
+        }
+
+        return $zipped;
+    }
+
+    public function testServerInfo() {
+        if ( ! $this->minVersionCheck('6.0.0'))
+            $this->markTestSkipped();
+
+        $hello = $this->execHello();
+        if ( ! $this->assertArrayKey($hello, 'server') ||
+             ! $this->assertArrayKey($hello, 'version'))
+        {
+            return false;
+        }
+
+        $this->assertEquals($hello['server'], $this->redis->serverName());
+        $this->assertEquals($hello['version'], $this->redis->serverVersion());
+
+        $info = $this->redis->info();
+        $cmd1 = $info['total_commands_processed'];
+
+        /* Shouldn't hit the server */
+        $this->assertEquals($hello['server'], $this->redis->serverName());
+        $this->assertEquals($hello['version'], $this->redis->serverVersion());
+
+        $info = $this->redis->info();
+        $cmd2 = $info['total_commands_processed'];
+
+        $this->assertEquals(1 + $cmd1, $cmd2);
+    }
+
+    public function testServerInfoOldRedis() {
+        if ($this->minVersionCheck('6.0.0'))
+            $this->markTestSkipped();
+
+        $this->assertFalse($this->redis->serverName());
+        $this->assertFalse($this->redis->serverVersion());
+    }
+
     public function testInfoCommandStats() {
         // INFO COMMANDSTATS is new in 2.6.0
         if (version_compare($this->version, '2.5.0') < 0)
@@ -3438,6 +3528,22 @@ class Redis_Test extends TestSuite {
             ->exec();
         $this->assertIsArray($ret);
         $this->assertEquals(5, count($ret)); // should be 5 atomic operations
+    }
+
+    public function testMultiEmpty()
+    {
+        $ret = $this->redis->multi()->exec();
+        $this->assertEquals([], $ret);
+    }
+
+    public function testPipelineEmpty()
+    {
+        if (!$this->havePipeline()) {
+            $this->markTestSkipped();
+        }
+
+        $ret = $this->redis->pipeline()->exec();
+        $this->assertEquals([], $ret);
     }
 
     /* GitHub issue #1211 (ignore redundant calls to pipeline or multi) */
@@ -4908,6 +5014,104 @@ class Redis_Test extends TestSuite {
         $this->redis->setOption(Redis::OPT_PREFIX, '');
     }
 
+    private function cartesianProduct(array $arrays) {
+        $result = [[]];
+
+        foreach ($arrays as $array) {
+            $append = [];
+            foreach ($result as $product) {
+                foreach ($array as $item) {
+                    $newProduct = $product;
+                    $newProduct[] = $item;
+                    $append[] = $newProduct;
+                }
+            }
+
+            $result = $append;
+        }
+
+        return $result;
+    }
+
+    public function testIgnoreNumbers() {
+        $combinations = $this->cartesianProduct([
+            [false, true, false],
+            $this->getSerializers(),
+            $this->getCompressors(),
+        ]);
+
+        foreach ($combinations as [$ignore, $serializer, $compression]) {
+            $this->redis->setOption(Redis::OPT_PACK_IGNORE_NUMBERS, $ignore);
+            $this->redis->setOption(Redis::OPT_SERIALIZER, $serializer);
+            $this->redis->setOption(Redis::OPT_COMPRESSION, $compression);
+
+            $this->assertIsInt($this->redis->del('answer'));
+            $this->assertIsInt($this->redis->del('hash'));
+
+            $transparent = $compression === Redis::COMPRESSION_NONE &&
+                           ($serializer === Redis::SERIALIZER_NONE ||
+                            $serializer === Redis::SERIALIZER_JSON);
+
+            if ($transparent || $ignore) {
+                $expected_answer = 42;
+                $expected_pi = 3.14;
+            } else {
+                $expected_answer = false;
+                $expected_pi = false;
+            }
+
+            $this->assertTrue($this->redis->set('answer', 32));
+            $this->assertEquals($expected_answer, $this->redis->incr('answer', 10));
+
+            $this->assertTrue($this->redis->set('pi', 3.04));
+            $this->assertEquals($expected_pi, $this->redis->incrByFloat('pi', 0.1));
+
+            $this->assertEquals(1, $this->redis->hset('hash', 'answer', 32));
+            $this->assertEquals($expected_answer, $this->redis->hIncrBy('hash', 'answer', 10));
+
+            $this->assertEquals(1, $this->redis->hset('hash', 'pi', 3.04));
+            $this->assertEquals($expected_pi, $this->redis->hIncrByFloat('hash', 'pi', 0.1));
+        }
+
+        $this->redis->setOption(Redis::OPT_SERIALIZER, Redis::SERIALIZER_NONE);
+        $this->redis->setOption(Redis::OPT_COMPRESSION, Redis::COMPRESSION_NONE);
+        $this->redis->setOption(Redis::OPT_PACK_IGNORE_NUMBERS, false);
+    }
+
+    function testIgnoreNumbersReturnTypes() {
+        $combinations = $this->cartesianProduct([
+            [false, true],
+            array_filter($this->getSerializers(), function($s) {
+                return $s !== Redis::SERIALIZER_NONE;
+            }),
+            array_filter($this->getCompressors(), function($c) {
+                return $c !== Redis::COMPRESSION_NONE;
+            }),
+        ]);
+
+        foreach ($combinations as [$ignore, $serializer, $compression]) {
+            $this->redis->setOption(Redis::OPT_PACK_IGNORE_NUMBERS, $ignore);
+            $this->redis->setOption(Redis::OPT_SERIALIZER, $serializer);
+            $this->redis->setOption(Redis::OPT_COMPRESSION, $compression);
+
+            foreach ([42, 3.14] as $value) {
+                $this->assertTrue($this->redis->set('key', $value));
+
+                /* There's a known issue in the PHP JSON parser, which
+                   can stringify numbers. Unclear the root cause */
+                if ($serializer == Redis::SERIALIZER_JSON) {
+                    $this->assertEqualsWeak($value, $this->redis->get('key'));
+                } else {
+                    $this->assertEquals($value, $this->redis->get('key'));
+                }
+            }
+        }
+
+        $this->redis->setOption(Redis::OPT_SERIALIZER, Redis::SERIALIZER_NONE);
+        $this->redis->setOption(Redis::OPT_COMPRESSION, Redis::COMPRESSION_NONE);
+        $this->redis->setOption(Redis::OPT_PACK_IGNORE_NUMBERS, false);
+    }
+
     public function testSerializerIGBinary() {
         if ( ! defined('Redis::SERIALIZER_IGBINARY'))
             $this->markTestSkipped('Redis::SERIALIZER_IGBINARY is not defined');
@@ -5650,6 +5854,70 @@ class Redis_Test extends TestSuite {
 
         $this->redis->setOption(Redis::OPT_SERIALIZER, $oldser);
         $this->redis->setOption(Redis::OPT_COMPRESSION, $oldcmp);
+    }
+
+    public function testGetWithMeta() {
+        $this->redis->del('key');
+        $this->assertFalse($this->redis->get('key'));
+
+        $result = $this->redis->getWithMeta('key');
+        $this->assertIsArray($result, 2);
+        $this->assertArrayKeyEquals($result, 0, false);
+        $this->assertArrayKey($result, 1, function ($metadata) {
+            $this->assertIsArray($metadata);
+            $this->assertArrayKeyEquals($metadata, 'length', -1);
+            return true;
+        });
+
+        $batch = $this->redis->pipeline()
+            ->get('key')
+            ->getWithMeta('key')
+            ->exec();
+        $this->assertIsArray($batch, 2);
+        $this->assertArrayKeyEquals($batch, 0, false);
+        $this->assertArrayKey($batch, 1, function ($result) {
+            $this->assertIsArray($result, 2);
+            $this->assertArrayKeyEquals($result, 0, false);
+            $this->assertArrayKey($result, 1, function ($metadata) {
+                $this->assertIsArray($metadata);
+                $this->assertArrayKeyEquals($metadata, 'length', -1);
+                return true;
+            });
+            return true;
+        });
+
+        $batch = $this->redis->multi()
+            ->set('key', 'value')
+            ->getWithMeta('key')
+            ->exec();
+        $this->assertIsArray($batch, 2);
+        $this->assertArrayKeyEquals($batch, 0, true);
+        $this->assertArrayKey($batch, 1, function ($result) {
+            $this->assertIsArray($result, 2);
+            $this->assertArrayKeyEquals($result, 0, 'value');
+            $this->assertArrayKey($result, 1, function ($metadata) {
+                $this->assertIsArray($metadata);
+                $this->assertArrayKeyEquals($metadata, 'length', strlen('value'));
+                return true;
+            });
+            return true;
+        });
+
+        $serializer = $this->redis->getOption(Redis::OPT_SERIALIZER);
+        $this->redis->setOption(Redis::OPT_SERIALIZER, Redis::SERIALIZER_PHP);
+        $this->assertTrue($this->redis->set('key', false));
+
+        $result = $this->redis->getWithMeta('key');
+        $this->assertIsArray($result, 2);
+        $this->assertArrayKeyEquals($result, 0, false);
+        $this->assertArrayKey($result, 1, function ($metadata) {
+            $this->assertIsArray($metadata);
+            $this->assertArrayKeyEquals($metadata, 'length', strlen(serialize(false)));
+            return true;
+        });
+
+        $this->assertFalse($this->redis->get('key'));
+        $this->redis->setOption(Redis::OPT_SERIALIZER, $serializer);
     }
 
     public function testPrefix() {

@@ -2,7 +2,7 @@
     "name": "pie-extensions/redis",
     "description": "PIE-compatible mirror of phpredis/phpredis",
     "type": "php-ext",
-    "version": "6.1.0",
+    "version": "6.2.0",
     "require": {
         "php": ">=8.2"
     },
