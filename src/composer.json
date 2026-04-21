@@ -1,10 +1,11 @@
+
 {
-    "name": "pie-extensions/redis",
-    "description": "PIE-compatible mirror of phpredis/phpredis",
+    "name": "phpredis/phpredis",
     "type": "php-ext",
-    "version": "6.1.0",
+    "license": "PHP-3.01",
+    "description": "A PHP extension for Redis",
     "require": {
-        "php": ">=8.2"
+        "php": ">= 7.4.0"
     },
     "php-ext": {
         "extension-name": "redis",
@@ -56,15 +57,6 @@
                 "description": "Use system liblz4",
                 "needs-value": true
             }
-        ],
-        "priority": 60,
-        "build-path": "src",
-        "download-url-method": [
-            "pre-packaged-binary",
-            "composer-default"
         ]
-    },
-    "support": {
-        "source": "https://github.com/pie-extensions/redis"
     }
 }
