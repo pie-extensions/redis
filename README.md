@@ -1,11 +1,11 @@
-# pie-extensions/EXTENSION_NAME
+# pie-extensions/redis
 
-PIE-compatible mirror of [UPSTREAM_OWNER/UPSTREAM_REPO](https://github.com/UPSTREAM_OWNER/UPSTREAM_REPO).
+PIE-compatible mirror of [phpredis/phpredis](https://github.com/phpredis/phpredis).
 
 ## Install
 
 ```bash
-pie install pie-extensions/EXTENSION_NAME
+pie install pie-extensions/redis
 ```
 
 ## What is this?
@@ -31,10 +31,14 @@ Pre-built binaries are available for the following platforms:
 
 ## Links
 
-- **Upstream:** https://github.com/UPSTREAM_OWNER/UPSTREAM_REPO
+- **Upstream:** https://github.com/phpredis/phpredis
 - **PIE:** https://github.com/php/pie
 - **Organization:** https://github.com/pie-extensions
 
 ## License
 
 This mirror inherits the license of the upstream project. See the upstream repository for license details.
+
+## Issues & Questions
+
+This is an automated mirror repository. Please report all issues and direct questions to the [pie-extensions/core](https://github.com/pie-extensions/core) repository.
